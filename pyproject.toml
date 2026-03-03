@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ai-poker-player"
-version = "0.1.0"
+version = "0.2.0"
 description = "Assistente de poker com IA: melhor jogada no Texas Hold'em (posição, cartas, equity, Groq/Ollama/API)."
 readme = "README.md"
 license = { text = "MIT" }

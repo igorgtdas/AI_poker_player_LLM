@@ -1,275 +1,262 @@
 # AI Poker Player
 
-Assistente de poker com IA que sugere a **melhor jogada** no Texas Hold'em com base em:
+**Agente de IA** para Texas Hold'em que analisa posição, cartas e contexto da mesa e sugere a **melhor jogada** (FOLD, CHECK, CALL, RAISE). Suporta entrada manual ou **extração a partir de imagem** da mesa (screenshot) via LLM com visão.
 
-- **Posição** na mesa (UTG, CO, BTN, SB, BB, etc.)
-- **Cartas da mesa** (flop, turn, river)
-- **Probabilidade de vitória** (equity) calculada por simulação Monte Carlo
-- **Contexto** opcional: tamanho do pote, stack, ações anteriores
+[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-**Provedores suportados (por prioridade):**
+---
 
-1. **Groq** — Llama 4 Scout (`meta-llama/llama-4-scout-17b-16e-instruct`), apenas texto, via API Groq  
-2. **API OpenAI-compatible** — ex.: Llama 3.2 Vision (com imagem), NVIDIA NIM, OpenLLM  
-3. **Ollama (local)** — Llama 3.2 Vision ou outro modelo
+## Visão geral
+
+- **Entrada:** posição na mesa, suas cartas (hole cards), cartas comunitárias (flop/turn/river), número de oponentes, pote e stack.
+- **Saída:** probabilidade de vitória (equity, Monte Carlo) e **recomendação** em texto (modelo de linguagem).
+- **Modo imagem:** envia uma foto/screenshot da mesa → um LLM com visão extrai um JSON (posição, `player_cards`, `community_cards`, etc.) → um segundo LLM (consultor) devolve equity e recomendação.
+- **Mão vazia:** se não houver cartas na mão (`player_cards: []`), o sistema não retorna erro; a equity é 0% e o consultor pode recomendar FOLD.
+
+### Provedores de modelo (prioridade)
+
+| Ordem | Provedor | Modelo | Uso |
+|-------|----------|--------|-----|
+| 1 | **Groq** | `meta-llama/llama-4-scout-17b-16e-instruct` (Llama 4 Scout) | Texto e **imagem (vision)** — extração e consulta |
+| 2 | API OpenAI-compatible | ex.: `meta-llama/Llama-3.2-11B-Vision-Instruct` | Visão e/ou texto |
+| 3 | **Ollama** (local) | `llama3.2-vision` | Visão local |
 
 ---
 
 ## Requisitos
 
 - **Python 3.8+**
-- **Groq (recomendado):** chave em [console.groq.com](https://console.groq.com); modelo Llama 4 Scout
-- **Ollama (local):** [Ollama](https://ollama.com) e `ollama pull llama3.2-vision`
-- **Outra API:** endpoint OpenAI-compatible (chat + opcionalmente imagem)
+- **Groq (recomendado):** chave em [console.groq.com](https://console.groq.com) — modelo Llama 4 Scout com vision
+- **Opcional:** Ollama com `llama3.2-vision` ou outra API com suporte a imagem
 
 ---
 
 ## Instalação
 
 ```bash
-# Clone o repositório (ou baixe e extraia)
 git clone https://github.com/SEU_USUARIO/AI_poker_player.git
 cd AI_poker_player
 
-# Crie o ambiente virtual (recomendado)
 python -m venv venv
 # Windows:
 venv\Scripts\activate
 # Linux/macOS:
 # source venv/bin/activate
 
-# Instale as dependências
 pip install -r requirements.txt
-
-# Configure as variáveis de ambiente (copie o exemplo e preencha)
-# Windows: copy .env.example .env
-# Linux/macOS: cp .env.example .env
-# Depois edite .env com suas chaves de API (ou use config_ui.py).
 ```
 
-O arquivo `.env` não é commitado; use `.env.example` como modelo.
+Configure as variáveis de ambiente (o `.env` **não** é commitado):
+
+```bash
+# Windows
+copy .env.example .env
+
+# Linux/macOS
+cp .env.example .env
+```
+
+Edite o `.env` com suas chaves ou use a interface gráfica (`python config_ui.py`).
 
 ---
 
-## Configuração da API (interface gráfica)
+## Configuração
 
-Para definir as variáveis de ambiente da API sem usar o terminal, use o frontend em Python (tkinter):
+### Interface gráfica (recomendado)
 
 ```bash
 python config_ui.py
 ```
 
-Abre uma janela com duas seções:
+- **Groq:** `GROQ_API_KEY` e `GROQ_MODEL` (padrão: `meta-llama/llama-4-scout-17b-16e-instruct`)
+- **Outra API:** `LLAMA_VISION_API_BASE_URL`, `LLAMA_VISION_API_KEY`, `LLAMA_VISION_MODEL`
 
-- **Groq (Llama 4 Scout):** chave da API Groq e nome do modelo (ex.: `meta-llama/llama-4-scout-17b-16e-instruct`). Se preenchida, tem prioridade.
-- **Outra API:** URL base, chave e modelo (ex.: Llama 3.2 Vision). Usada se Groq não estiver configurada.
+Salve em `.env`. Se apenas a Groq estiver definida, o agente usa Llama 4 Scout para extração e consulta.
 
-Clique em **Salvar em .env** para gravar em `.env`. O `main.py` carrega esse arquivo ao rodar. Se nada estiver definido, usa **Ollama local**.
+### Variáveis de ambiente (referência)
+
+| Variável | Descrição |
+|----------|-----------|
+| `GROQ_API_KEY` | Chave da API Groq (prioridade) |
+| `GROQ_MODEL` | Modelo Groq (padrão: `meta-llama/llama-4-scout-17b-16e-instruct`) |
+| `LLAMA_VISION_API_BASE_URL` | URL base de API OpenAI-compatible |
+| `LLAMA_VISION_API_KEY` | Chave dessa API |
+| `LLAMA_VISION_MODEL` | Nome do modelo (ex.: `meta-llama/Llama-3.2-11B-Vision-Instruct`) |
 
 ---
 
 ## Uso
 
-### Linha de comando
-
-Exemplo **preflop**, posição no botão, cartas As e Kh:
+### 1. Linha de comando (entrada manual)
 
 ```bash
+# Preflop, posição BTN, cartas A♠ K♥
 python main.py --posicao BTN --cartas "As Kh"
-```
 
-Exemplo no **flop** com mesa Ah Ks 7d:
-
-```bash
+# Flop com mesa A♥ K♠ 7♦, 2 oponentes
 python main.py --posicao CO --cartas "Ad Kc" --mesa "Ah Ks 7d" --oponentes 2
+
+# Com pote e blind
+python main.py --posicao BTN --cartas "As Kh" --mesa "Ah Ks 7d" --pote 50 --blind 1
 ```
 
-Com **imagem** da mesa (screenshot) como contexto extra para o consultor:
+Parâmetros úteis: `--mesa`, `--oponentes`, `--pote`, `--stack`, `--blind`, `--acoes`, `--simulacoes`.
 
-```bash
-python main.py --posicao BTN --cartas "As Kh" --mesa "Ah Ks 7d 2c" --imagem C:\caminho\mesa.png
-```
+### 2. Extrair da imagem (screenshot da mesa)
 
-### Extrair tudo da imagem (OCR + consultor) — dois LLMs
-
-O sistema pode **ler uma imagem** da mesa (screenshot), usar um **LLM com visão** para extrair um JSON com posição, cartas, número de jogadores, BBs apostadas e risco pela posição, e em seguida passar esse JSON para o **segundo LLM** (consultor), que devolve a probabilidade de vitória e a recomendação.
-
-**Requisito:** para a etapa de extração é necessário um modelo com visão (Ollama `llama3.2-vision` ou API com suporte a imagem, ex.: `LLAMA_VISION_API_*`). O consultor pode ser Groq (Llama 4 Scout) ou o mesmo backend de visão.
+Um LLM com visão extrai os dados da mesa; o consultor devolve equity e recomendação. **Não retorna erro** se não houver cartas na mão (`player_cards: []`).
 
 ```bash
 python main.py --extrair --imagem C:\caminho\screenshot_mesa.png
 ```
 
-O JSON extraído segue o formato:
-
-```json
-{
-  "quantos_player_na_mesa": 2,
-  "posicao": "BTN",
-  "suas_cartas": ["As", "Kh"],
-  "cartas_mesa": ["Ah", "Ks", "7d"],
-  "bbs_apostadas": 5.0,
-  "risco_baseado_na_posicao": "button, last to act"
-}
-```
-
-- **Etapa 1:** LLM de visão analisa a imagem e devolve esse JSON.  
-- **Etapa 2:** O consultor (Groq ou outro) recebe os dados, calcula a equity e devolve a recomendação.
-
-Exemplo com Groq como consultor (recomendado) e Ollama local para visão:
+Com Groq (um único modelo faz extração e consulta):
 
 ```bash
 set GROQ_API_KEY=sua-chave
-ollama pull llama3.2-vision
 python main.py --extrair --imagem mesa.png
 ```
 
-### Interface para envio de imagem
-
-Para usar com uma janela em vez da linha de comando:
+### 3. Interface gráfica para imagem
 
 ```bash
 python front_imagem.py
 ```
 
-Abra uma imagem da mesa (screenshot ou foto), clique em **Analisar imagem** e aguarde. O resultado (JSON extraído, probabilidade de vitória e recomendação) aparece na própria janela. As variáveis de ambiente (Groq, API, etc.) são lidas do `.env`.
+- Selecione a imagem da mesa
+- Opcional: informe o **username** do jogador (para o modelo identificar suas cartas)
+- Clique em **Analisar imagem (extrair + recomendar)**
+- O resultado (JSON extraído, equity e recomendação) aparece na janela
 
-Opções úteis:
+---
 
-- `--pote 50` — tamanho do pote  
-- `--stack 200` — seu stack  
-- `--blind 1` — big blind  
-- `--acoes "Villain bet 2bb"` — resumo das ações  
-- `--simulacoes 1500` — mais simulações = equity mais estável  
+## JSON extraído da imagem (schema)
 
-### Groq (Llama 4 Scout) — recomendado
+O extrator devolve um objeto com as chaves abaixo. O pipeline aceita tanto esses nomes quanto os antigos (ex.: `suas_cartas`).
 
-Defina a chave no `.env` (via `config_ui.py`) ou na linha de comando:
+| Campo | Tipo | Descrição |
+|-------|------|-----------|
+| `total_number_of_players` | int | Número de jogadores na mão |
+| `position` | string | Sua posição: UTG, UTG+1, HJ, CO, BTN, SB, BB |
+| `player_cards` | array | **0 ou 2** cartas (hole cards). Vazio `[]` se sem cartas na mão, fold ou não visível |
+| `community_cards` | array | 0 (preflop), 3 (flop), 4 (turn) ou 5 (river) cartas |
+| `money_beted` | number | Valor já no pote / aposta a pagar (em BB ou valor absoluto) |
+| `risk_based_on_position_player` | string | Breve avaliação do risco pela posição |
 
-```bash
-set GROQ_API_KEY=sua-chave-groq
-python main.py --posicao BTN --cartas "As Kh" --mesa "Ah Ks 7d"
+Exemplo:
+
+```json
+{
+  "total_number_of_players": 2,
+  "position": "BTN",
+  "player_cards": ["As", "Kh"],
+  "community_cards": ["Ah", "Ks", "7d"],
+  "money_beted": 5.0,
+  "risk_based_on_position_player": "button, last to act"
+}
 ```
 
-Ou explicitamente:
+Com mão vazia (sem erro):
 
-```bash
-python main.py --groq --groq-key SUA_CHAVE --posicao CO --cartas "Ad Kc" --mesa "Ah Ks 7d"
-```
-
-Stream da resposta (texto saindo em tempo real):
-
-```bash
-python main.py --groq --groq-stream --posicao BTN --cartas "As Kh"
-```
-
-Modelo padrão: `meta-llama/llama-4-scout-17b-16e-instruct`. Para outro modelo: `--groq-model nome-do-modelo` ou variável `GROQ_MODEL`.
-
-### Outra API (OpenAI-compatible)
-
-Use um endpoint compatível com a API OpenAI (ex.: Llama 3.2 Vision com imagem).
-
-**Variáveis de ambiente:**
-
-```bash
-set LLAMA_VISION_API_BASE_URL=https://seu-servidor.com/v1
-set LLAMA_VISION_API_KEY=sua-chave
-set LLAMA_VISION_MODEL=meta-llama/Llama-3.2-11B-Vision-Instruct
-python main.py --posicao BTN --cartas "As Kh" --mesa "Ah Ks 7d"
-```
-
-**Ou pela linha de comando:**
-
-```bash
-python main.py --api --api-url https://seu-servidor.com/v1 --api-key SUA_CHAVE --posicao CO --cartas "Ad Kc" --mesa "Ah Ks 7d"
-```
-
-### No seu código Python
-
-```python
-from advisor import melhor_jogada
-
-# Usa Groq se GROQ_API_KEY estiver no .env; senão API ou Ollama
-resultado = melhor_jogada(
-    posicao="BTN",
-    suas_cartas=["As", "Kh"],
-    cartas_mesa=["Ah", "Ks", "7d"],
-    num_oponentes=1,
-    tamanho_pote=10,
-    sua_stack=100,
-    blind=1.0,
-)
-
-# Forçar Groq (Llama 4 Scout)
-resultado = melhor_jogada(
-    posicao="BTN",
-    suas_cartas=["As", "Kh"],
-    cartas_mesa=["Ah", "Ks", "7d"],
-    use_groq=True,
-    groq_api_key="sua-chave-groq",
-    groq_model="meta-llama/llama-4-scout-17b-16e-instruct",
-    groq_stream=False,
-)
-
-# Forçar outra API (OpenAI-compatible)
-resultado = melhor_jogada(
-    posicao="BTN",
-    suas_cartas=["As", "Kh"],
-    cartas_mesa=["Ah", "Ks", "7d"],
-    use_api=True,
-    api_base_url="https://seu-servidor.com/v1",
-    api_key="sua-chave",
-    api_model="meta-llama/Llama-3.2-11B-Vision-Instruct",
-)
-
-print("Equity:", resultado["probabilidade_vitoria"])
-print("Recomendação:", resultado["recomendacao"])
+```json
+{
+  "position": "BTN",
+  "player_cards": [],
+  "community_cards": ["Ah", "Ks", "7d"],
+  "money_beted": 2.0,
+  "risk_based_on_position_player": ""
+}
 ```
 
 ---
 
 ## Formato das cartas
 
-- **Valores:** `2`–`9`, `T` (10), `J`, `Q`, `K`, `A`  
-- **Naipes:** `s` (espadas), `h` (copas), `d` (ouros), `c` (paus)  
-- Exemplos: `As`, `Kh`, `Td`, `7c`  
+- **Valores:** `2`–`9`, `T` (10), `J`, `Q`, `K`, `A`
+- **Naipes:** `s` (espadas), `h` (copas), `d` (ouros), `c` (paus)
+- Exemplos: `As`, `Kh`, `Td`, `7c`
 
 ---
 
 ## Posições
 
-| Código | Nome        | Descrição breve      |
-|--------|-------------|----------------------|
-| UTG    | Under the Gun | Primeira a agir     |
-| UTG+1  |              | Segunda a agir      |
-| HJ     | Hijack      | Meio da mesa        |
-| CO     | Cutoff      | Uma antes do botão  |
-| BTN    | Button      | Melhor posição      |
-| SB     | Small Blind | Cego pequeno        |
-| BB     | Big Blind   | Cego grande         |
+| Código | Nome | Descrição |
+|--------|------|-----------|
+| UTG | Under the Gun | Primeira a agir |
+| UTG+1 | | Segunda a agir |
+| HJ | Hijack | Meio da mesa |
+| CO | Cutoff | Uma antes do botão |
+| BTN | Button | Melhor posição |
+| SB | Small Blind | Cego pequeno |
+| BB | Big Blind | Cego grande |
+
+---
+
+## Uso como biblioteca
+
+```python
+from advisor import melhor_jogada
+from pipeline import imagem_para_recomendacao
+
+# Entrada manual
+resultado = melhor_jogada(
+    posicao="BTN",
+    suas_cartas=["As", "Kh"],
+    cartas_mesa=["Ah", "Ks", "7d"],
+    num_oponentes=1,
+    tamanho_pote=10,
+    blind=1.0,
+)
+print(resultado["probabilidade_vitoria"], resultado["recomendacao"])
+
+# A partir de imagem (player_cards pode ser [])
+resultado = imagem_para_recomendacao("screenshot_mesa.png", username_player="MeuNick")
+print(resultado["dados_extraidos"]["player_cards"])
+print(resultado["probabilidade_vitoria"], resultado["recomendacao"])
+```
 
 ---
 
 ## Estrutura do projeto
 
-- `poker_engine.py` — baralho, ranking de mãos, **probabilidade de vitória (Monte Carlo)**
-- `posicao.py` — posições da mesa e descrições
-- `advisor.py` — monta o prompt e chama o LLM consultor (Groq, API ou Ollama)
-- `extractor.py` — LLM de visão para extrair JSON da mesa a partir de uma imagem (OCR)
-- `pipeline.py` — encadeia extração (imagem → JSON) e consultor (JSON → probabilidade + recomendação)
-- `main.py` — CLI: entrada manual (--posicao, --cartas) ou modo --extrair (imagem → JSON → recomendação)
-- `config_ui.py` — interface gráfica para variáveis de ambiente (`.env`)
-- `front_imagem.py` — interface gráfica para enviar uma imagem da mesa e ver JSON + recomendação
+| Arquivo | Função |
+|---------|--------|
+| `poker_engine.py` | Baralho, ranking de mãos, equity (Monte Carlo). Aceita 0 ou 2 hole cards. |
+| `posicao.py` | Posições da mesa (UTG, BTN, etc.) |
+| `advisor.py` | Monta o prompt e chama o LLM (Groq, API ou Ollama). Suporta mão vazia. |
+| `extractor.py` | LLM de visão: imagem → JSON (`player_cards`, `community_cards`, etc.). |
+| `pipeline.py` | Fluxo: imagem → extração → unificação de chaves → consultor. Aceita `player_cards: []`. |
+| `main.py` | CLI: entrada manual ou `--extrair --imagem` |
+| `config_ui.py` | Interface para configurar `.env` (Groq, API) |
+| `front_imagem.py` | Interface para enviar imagem e ver JSON + recomendação |
+
+---
+
+## Versão e publicação
+
+- **Versão atual:** definida em `pyproject.toml` (ex.: `0.1.0`).
+- Para **nova versão:** altere `version` em `pyproject.toml`, faça commit e crie uma tag:
+
+```bash
+# Edite pyproject.toml (campo version)
+git add .
+git commit -m "Release v0.2.0"
+git tag v0.2.0
+git push origin main --tags
+```
+
+No GitHub, em **Releases**, crie um release a partir da tag e descreva as mudanças.
 
 ---
 
 ## Notas
 
-- A **equity** é estimada por simulação; mais `--simulacoes` aumenta a precisão e o tempo.
-- O Llama 3.2 Vision responde em **inglês**; o prompt é em inglês para melhor resultado.
-- Se não passar `--imagem`, a recomendação usa só **texto** (posição, cartas, equity, pote, etc.).
-- **Ollama:** certifique-se de que está rodando (`ollama serve` ou abrindo o app) antes de usar no modo local.  
-- **API:** o endpoint deve suportar o formato OpenAI para chat completions e conteúdo multimodal (`image_url` com base64 ou URL).
+- **Equity:** estimada por Monte Carlo; `--simulacoes` aumenta precisão e tempo.
+- **Idioma:** os prompts estão em inglês; as respostas dos modelos costumam vir em inglês.
+- **Mão vazia:** `player_cards: []` não gera erro; equity = 0% e o consultor pode recomendar FOLD.
+- **Groq:** Llama 4 Scout suporta visão; uma única chave basta para extração e consulta.
+- **Ollama:** deve estar em execução (`ollama serve` ou app) quando for usado.
 
 ---
 

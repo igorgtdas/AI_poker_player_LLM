@@ -167,10 +167,12 @@ def probabilidade_vitoria_monte_carlo(
 ) -> float:
     """
     Estima probabilidade de vitória com Monte Carlo.
-    suas_cartas: 2 cartas (ex: ["As", "Kh"])
+    suas_cartas: 2 cartas (ex: ["As", "Kh"]) ou [] se sem cartas na mão
     cartas_mesa: 0, 3 (flop), 4 (turn) ou 5 (river) cartas
     num_oponentes: número de oponentes (cada um com 2 cartas aleatórias).
     """
+    if len(suas_cartas) != 2:
+        return 0.0
     if seed is not None:
         random.seed(seed)
     suas = [parse_carta(c) for c in suas_cartas]

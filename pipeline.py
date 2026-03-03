@@ -10,6 +10,18 @@ from extractor import extrair_json_da_imagem
 from poker_engine import normalizar_carta_str
 
 
+def _dados_unificados(dados: dict) -> dict:
+    """Unifica chaves do extrator (player_cards, position, etc.) com as usadas pelo advisor."""
+    return {
+        "posicao": dados.get("position") or dados.get("posicao") or "BTN",
+        "suas_cartas": dados.get("player_cards") or dados.get("suas_cartas") or [],
+        "cartas_mesa": dados.get("community_cards") or dados.get("cartas_mesa") or [],
+        "quantos_player_na_mesa": dados.get("total_number_of_players") or dados.get("quantos_player_na_mesa") or 2,
+        "bbs_apostadas": dados.get("money_beted") or dados.get("bbs_apostadas") or 0,
+        "risco_baseado_na_posicao": dados.get("risk_based_on_position_player") or dados.get("risco_baseado_na_posicao") or "",
+    }
+
+
 def _contexto_extra(dados: dict) -> str:
     """Monta texto de contexto para o consultor a partir de bbs e risco."""
     partes = []
@@ -65,19 +77,24 @@ def imagem_para_recomendacao(
         modelo_ollama=vision_model_ollama,
     )
 
-    posicao = dados.get("posicao") or "BTN"
+    u = _dados_unificados(dados)
+    posicao = u["posicao"]
     # Normaliza cartas: LLM às vezes retorna só valor ("9") em vez de "9s"
-    suas_cartas = [normalizar_carta_str(c) for c in (dados.get("suas_cartas") or [])]
-    cartas_mesa = [normalizar_carta_str(c) for c in (dados.get("cartas_mesa") or [])]
-    quantos = max(1, int(dados.get("quantos_player_na_mesa") or 2))
+    suas_cartas = [normalizar_carta_str(c) for c in u["suas_cartas"]]
+    cartas_mesa = [normalizar_carta_str(c) for c in u["cartas_mesa"]]
+    quantos = max(1, int(u["quantos_player_na_mesa"] or 2))
     num_oponentes = max(0, quantos - 1)
-    bbs = float(dados.get("bbs_apostadas") or 0)
+    bbs = float(u["bbs_apostadas"] or 0)
     tamanho_pote = bbs * blind if blind else bbs
-    acoes_anteriores = _contexto_extra(dados)
+    # Contexto para o consultor (usa chaves unificadas)
+    dados_ctx = dict(dados)
+    dados_ctx.update(u)
+    acoes_anteriores = _contexto_extra(dados_ctx)
 
-    if len(suas_cartas) != 2:
+    # Permite 0 cartas (mão vazia / não visível): não retorna erro
+    if len(suas_cartas) not in (0, 2):
         raise ValueError(
-            f"A extração retornou {len(suas_cartas)} cartas (esperado 2). "
+            f"A extração retornou {len(suas_cartas)} cartas (esperado 0 ou 2). "
             "Verifique a imagem ou o JSON extraído."
         )
     if len(cartas_mesa) not in (0, 3, 4, 5):
@@ -87,7 +104,7 @@ def imagem_para_recomendacao(
 
     resultado = melhor_jogada(
         posicao=posicao,
-        suas_cartas=suas_cartas,
+        suas_cartas=suas_cartas if len(suas_cartas) == 2 else [],
         cartas_mesa=cartas_mesa,
         num_oponentes=num_oponentes,
         simulacoes=simulacoes,

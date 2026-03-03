@@ -43,12 +43,13 @@ def construir_prompt(
     fase = "preflop" if len(cartas_mesa) == 0 else "flop" if len(cartas_mesa) == 3 else "turn" if len(cartas_mesa) == 4 else "river"
     board_str = ", ".join(cartas_mesa) if cartas_mesa else "none"
     pos_desc = f"{posicao.value} ({posicao.forca_relativa} position). {posicao.descricao}"
+    hole_cards_str = ", ".join(suas_cartas) if suas_cartas else "none (no cards in hand or not visible)"
 
     prompt = f"""You are an expert Texas Hold'em poker assistant. Based ONLY on the following data, recommend the best action: FOLD, CHECK, CALL, or RAISE (and suggest size if raise).
 
 CONTEXT:
 - Your position: {pos_desc}
-- Your hole cards: {', '.join(suas_cartas)}
+- Your hole cards: {hole_cards_str}
 - Board: {board_str}
 - Street: {fase}
 - Number of opponents: {num_oponentes}
