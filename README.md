@@ -9,17 +9,17 @@ Assistente de poker com IA que sugere a **melhor jogada** no Texas Hold'em com b
 
 **Provedores suportados (por prioridade):**
 
-1. **Groq** — Llama 4 Scout (`meta-llama/llama-4-scout-17b-16e-instruct`), apenas texto, via API Groq  
-2. **API OpenAI-compatible** — ex.: Llama 3.2 Vision (com imagem), NVIDIA NIM, OpenLLM  
-3. **Ollama (local)** — Llama 3.2 Vision ou outro modelo
+1. **Groq** — Llama 4 Scout (`meta-llama/llama-4-scout-17b-16e-instruct`), texto e imagem (vision), via API Groq  
+2. **API OpenAI-compatible** — ex.: Llama 3.2 11B Vision (`meta-llama/Llama-3.2-11B-Vision-Instruct`), NVIDIA NIM, OpenLLM  
+3. **Ollama (local)** — Llama 3.2 Vision (`llama3.2-vision`) ou outro modelo
 
 ---
 
 ## Requisitos
 
 - **Python 3.8+**
-- **Groq (recomendado):** chave em [console.groq.com](https://console.groq.com); modelo Llama 4 Scout
-- **Ollama (local):** [Ollama](https://ollama.com) e `ollama pull llama3.2-vision`
+- **Groq (recomendado):** chave em [console.groq.com](https://console.groq.com); modelo `meta-llama/llama-4-scout-17b-16e-instruct` (Llama 4 Scout, com vision)
+- **Ollama (local):** [Ollama](https://ollama.com) e `ollama pull llama3.2-vision` (Llama 3.2 Vision)
 - **Outra API:** endpoint OpenAI-compatible (chat + opcionalmente imagem)
 
 ---
@@ -61,8 +61,8 @@ python config_ui.py
 
 Abre uma janela com duas seções:
 
-- **Groq (Llama 4 Scout):** chave da API Groq e nome do modelo (ex.: `meta-llama/llama-4-scout-17b-16e-instruct`). Se preenchida, tem prioridade.
-- **Outra API:** URL base, chave e modelo (ex.: Llama 3.2 Vision). Usada se Groq não estiver configurada.
+- **Groq (Llama 4 Scout):** chave da API Groq e modelo `meta-llama/llama-4-scout-17b-16e-instruct`. Se preenchida, tem prioridade.
+- **Outra API:** URL base, chave e modelo (ex.: `meta-llama/Llama-3.2-11B-Vision-Instruct`). Usada se Groq não estiver configurada.
 
 Clique em **Salvar em .env** para gravar em `.env`. O `main.py` carrega esse arquivo ao rodar. Se nada estiver definido, usa **Ollama local**.
 
@@ -94,7 +94,7 @@ python main.py --posicao BTN --cartas "As Kh" --mesa "Ah Ks 7d 2c" --imagem C:\c
 
 O sistema pode **ler uma imagem** da mesa (screenshot), usar um **LLM com visão** para extrair um JSON com posição, cartas, número de jogadores, BBs apostadas e risco pela posição, e em seguida passar esse JSON para o **segundo LLM** (consultor), que devolve a probabilidade de vitória e a recomendação.
 
-**Requisito:** para a etapa de extração é necessário um modelo com visão (Ollama `llama3.2-vision` ou API com suporte a imagem, ex.: `LLAMA_VISION_API_*`). O consultor pode ser Groq (Llama 4 Scout) ou o mesmo backend de visão.
+**Requisito:** para a etapa de extração é necessário um modelo com visão: Groq `meta-llama/llama-4-scout-17b-16e-instruct` (Llama 4 Scout), Ollama `llama3.2-vision` ou API (`LLAMA_VISION_API_*`). O consultor pode ser o mesmo modelo Groq ou outro backend.
 
 ```bash
 python main.py --extrair --imagem C:\caminho\screenshot_mesa.png
@@ -116,7 +116,14 @@ O JSON extraído segue o formato:
 - **Etapa 1:** LLM de visão analisa a imagem e devolve esse JSON.  
 - **Etapa 2:** O consultor (Groq ou outro) recebe os dados, calcula a equity e devolve a recomendação.
 
-Exemplo com Groq como consultor (recomendado) e Ollama local para visão:
+Exemplo com Groq (modelo `meta-llama/llama-4-scout-17b-16e-instruct` faz extração e consulta):
+
+```bash
+set GROQ_API_KEY=sua-chave
+python main.py --extrair --imagem mesa.png
+```
+
+Alternativa com Ollama para visão e Groq para consultor:
 
 ```bash
 set GROQ_API_KEY=sua-chave
@@ -167,7 +174,7 @@ Modelo padrão: `meta-llama/llama-4-scout-17b-16e-instruct`. Para outro modelo: 
 
 ### Outra API (OpenAI-compatible)
 
-Use um endpoint compatível com a API OpenAI (ex.: Llama 3.2 Vision com imagem).
+Use um endpoint compatível com a API OpenAI (ex.: Llama 3.2 11B Vision, modelo `meta-llama/Llama-3.2-11B-Vision-Instruct`).
 
 **Variáveis de ambiente:**
 
@@ -266,7 +273,7 @@ print("Recomendação:", resultado["recomendacao"])
 ## Notas
 
 - A **equity** é estimada por simulação; mais `--simulacoes` aumenta a precisão e o tempo.
-- O Llama 3.2 Vision responde em **inglês**; o prompt é em inglês para melhor resultado.
+- Os modelos (Llama 4 Scout, Llama 3.2 Vision) respondem em **inglês**; o prompt é em inglês para melhor resultado.
 - Se não passar `--imagem`, a recomendação usa só **texto** (posição, cartas, equity, pote, etc.).
 - **Ollama:** certifique-se de que está rodando (`ollama serve` ou abrindo o app) antes de usar no modo local.  
 - **API:** o endpoint deve suportar o formato OpenAI para chat completions e conteúdo multimodal (`image_url` com base64 ou URL).
