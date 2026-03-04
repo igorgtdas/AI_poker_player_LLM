@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.3.0]
+
+### Adicionado
+
+- Documentação de deploy (`DEPLOY.md`): passo a passo para release no GitHub, publicação no PyPI e deploy em servidor
+
+---
+
 ## [0.2.0]
 
 ### Adicionado
