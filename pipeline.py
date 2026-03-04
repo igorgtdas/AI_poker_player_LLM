@@ -11,13 +11,14 @@ from poker_engine import normalizar_carta_str
 
 
 def _dados_unificados(dados: dict) -> dict:
-    """Unifica chaves do extrator (player_cards, position, etc.) com as usadas pelo advisor."""
+    """Unifica chaves do schema (extrator) com as usadas pelo advisor. Schema: position, round, player_cards, community_cards, pot, etc."""
     return {
         "posicao": dados.get("position") or dados.get("posicao") or "BTN",
+        "round": dados.get("round") or dados.get("street") or "preflop",
         "suas_cartas": dados.get("player_cards") or dados.get("suas_cartas") or [],
         "cartas_mesa": dados.get("community_cards") or dados.get("cartas_mesa") or [],
         "quantos_player_na_mesa": dados.get("total_number_of_players") or dados.get("quantos_player_na_mesa") or 2,
-        "bbs_apostadas": dados.get("money_beted") or dados.get("bbs_apostadas") or 0,
+        "bbs_apostadas": dados.get("pot") or dados.get("money_beted") or dados.get("bbs_apostadas") or 0,
         "risco_baseado_na_posicao": dados.get("risk_based_on_position_player") or dados.get("risco_baseado_na_posicao") or "",
     }
 
@@ -39,16 +40,21 @@ def imagem_para_recomendacao(
     *,
     # Extrator (LLM visão)
     username_player: Optional[str] = None,
+    position_manual: Optional[str] = None,
+    use_regions: bool = False,
     use_vision_api: Optional[bool] = None,
     vision_api_base_url: Optional[str] = None,
     vision_api_key: Optional[str] = None,
     vision_api_model: Optional[str] = None,
     vision_model_ollama: str = "llama3.2-vision",
-    # Consultor (segundo LLM: Groq, API ou Ollama)
+    # Consultor (segundo LLM: Groq, OpenAI, API ou Ollama)
     use_groq: Optional[bool] = None,
     groq_api_key: Optional[str] = None,
     groq_model: Optional[str] = None,
     groq_stream: bool = False,
+    use_openai: Optional[bool] = None,
+    openai_api_key: Optional[str] = None,
+    openai_model: Optional[str] = None,
     use_api: Optional[bool] = None,
     api_base_url: Optional[str] = None,
     api_key: Optional[str] = None,
@@ -70,10 +76,15 @@ def imagem_para_recomendacao(
     dados = extrair_json_da_imagem(
         caminho_imagem,
         username_player=username_player,
+        position_manual=position_manual,
+        use_regions=use_regions,
         use_api=use_vision_api,
         api_base_url=vision_api_base_url,
         api_key=vision_api_key,
         api_model=vision_api_model,
+        use_openai=use_openai,
+        openai_api_key=openai_api_key,
+        openai_model=openai_model,
         modelo_ollama=vision_model_ollama,
     )
 
@@ -117,6 +128,9 @@ def imagem_para_recomendacao(
         groq_api_key=groq_api_key,
         groq_model=groq_model,
         groq_stream=groq_stream,
+        use_openai=use_openai,
+        openai_api_key=openai_api_key,
+        openai_model=openai_model,
         use_api=use_api,
         api_base_url=api_base_url,
         api_key=api_key,

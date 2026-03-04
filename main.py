@@ -49,6 +49,11 @@ def main():
     parser.add_argument("--groq-key", default="", help="Chave da API Groq. Ou env GROQ_API_KEY")
     parser.add_argument("--groq-model", default="", help="Modelo Groq (default: meta-llama/llama-4-scout-17b-16e-instruct). Ou env GROQ_MODEL")
     parser.add_argument("--groq-stream", action="store_true", help="Stream da resposta da Groq")
+    parser.add_argument("--openai", action="store_true", help="Usar OpenAI (GPT-4o, gpt-4o-mini). Ou defina env OPENAI_API_KEY")
+    parser.add_argument("--openai-key", default="", help="Chave da API OpenAI. Ou env OPENAI_API_KEY")
+    parser.add_argument("--openai-model", default="", help="Modelo OpenAI (default: gpt-4o-mini). Ex.: gpt-4o, gpt-4o-mini. Ou env OPENAI_MODEL")
+    parser.add_argument("--regioes", action="store_true", help="Extrair por regiões: recorta imagem em contexto, community_cards e hole_cards e analisa cada uma separadamente")
+    parser.add_argument("--position-manual", default="", dest="position_manual", help="Posição manual (sobrescreve OCR): UTG, UTG+1, HJ, CO, BTN, SB, BB. Use com --extrair.")
     args = parser.parse_args()
     imagem_path = args.imagem.strip() or None
     acoes = args.acoes.strip() or None
@@ -56,6 +61,9 @@ def main():
     use_groq = args.groq or bool(args.groq_key or os.environ.get("GROQ_API_KEY"))
     groq_key = args.groq_key.strip() or os.environ.get("GROQ_API_KEY")
     groq_model = args.groq_model.strip() or os.environ.get("GROQ_MODEL")
+    use_openai = args.openai or bool(args.openai_key or os.environ.get("OPENAI_API_KEY"))
+    openai_key = args.openai_key.strip() or os.environ.get("OPENAI_API_KEY")
+    openai_model = args.openai_model.strip() or os.environ.get("OPENAI_MODEL")
     use_api = args.api or bool(args.api_url or os.environ.get("LLAMA_VISION_API_BASE_URL"))
     api_url = args.api_url.strip() or os.environ.get("LLAMA_VISION_API_BASE_URL")
     api_key = args.api_key.strip() or os.environ.get("LLAMA_VISION_API_KEY")
@@ -66,10 +74,15 @@ def main():
         if not imagem_path or not os.path.isfile(imagem_path):
             print("Erro: com --extrair é obrigatório informar --imagem com um arquivo de imagem existente.", file=sys.stderr)
             sys.exit(1)
+        if getattr(args, "regioes", False):
+            print("Modo: extração por regiões (contexto + community_cards + hole_cards)")
         print("Etapa 1: Extraindo dados da mesa com LLM de visão (OCR)...")
         try:
+            position_manual = getattr(args, "position_manual", "").strip() or None
             resultado = imagem_para_recomendacao(
                 imagem_path,
+                position_manual=position_manual,
+                use_regions=getattr(args, "regioes", False),
                 use_vision_api=use_api,
                 vision_api_base_url=api_url,
                 vision_api_key=api_key,
@@ -79,6 +92,9 @@ def main():
                 groq_api_key=groq_key,
                 groq_model=groq_model,
                 groq_stream=args.groq_stream,
+                use_openai=use_openai,
+                openai_api_key=openai_key,
+                openai_model=openai_model,
                 use_api=use_api,
                 api_base_url=api_url,
                 api_key=api_key,
@@ -116,6 +132,8 @@ def main():
     print("Calculando probabilidade de vitória e consultando a IA...")
     if use_groq:
         print("Modo: Groq (Llama 4 Scout)")
+    elif use_openai:
+        print("Modo: OpenAI")
     elif use_api:
         print("Modo: API (OpenAI-compatible)")
     else:
@@ -137,6 +155,9 @@ def main():
             groq_api_key=groq_key or None,
             groq_model=groq_model or None,
             groq_stream=args.groq_stream,
+            use_openai=use_openai,
+            openai_api_key=openai_key or None,
+            openai_model=openai_model or None,
             use_api=use_api,
             api_base_url=api_url or None,
             api_key=api_key or None,

@@ -3,6 +3,8 @@
 .env.local
 .env.*.local
 *.pem
+*api_key*.txt
+*_key*.txt
 
 # Python
 __pycache__/
@@ -53,3 +55,6 @@ htmlcov/
 # Logs
 *.log
 logs/
+
+# Screenshots locais (opcional; remova se quiser versionar)
+# Screenshot_mesa/

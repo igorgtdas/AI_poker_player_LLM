@@ -20,7 +20,12 @@ ENV_GROQ_API_KEY = "GROQ_API_KEY"
 ENV_GROQ_MODEL = "GROQ_MODEL"
 DEFAULT_GROQ_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
 
-# API OpenAI-compatible (ex.: Llama Vision)
+# OpenAI (oficial: gpt-4o, gpt-4o-mini, etc.)
+ENV_OPENAI_API_KEY = "OPENAI_API_KEY"
+ENV_OPENAI_MODEL = "OPENAI_MODEL"
+DEFAULT_OPENAI_MODEL = "gpt-4o-mini"
+
+# API OpenAI-compatible (ex.: Llama Vision, outros provedores)
 ENV_API_BASE_URL = "LLAMA_VISION_API_BASE_URL"
 ENV_API_KEY = "LLAMA_VISION_API_KEY"
 ENV_MODEL = "LLAMA_VISION_MODEL"
@@ -72,6 +77,10 @@ def _usar_groq() -> bool:
     """True se GROQ_API_KEY estiver definida."""
     return bool(os.environ.get(ENV_GROQ_API_KEY))
 
+
+def _usar_openai() -> bool:
+    """True se OPENAI_API_KEY estiver definida."""
+    return bool(os.environ.get(ENV_OPENAI_API_KEY))
 
 def _usar_api() -> bool:
     """True se LLAMA_VISION_API_BASE_URL estiver definida."""
@@ -166,6 +175,62 @@ def consultar_groq_vision(
     return _groq_resposta_texto(completion, stream=False)
 
 
+def consultar_openai(
+    prompt: str,
+    modelo: Optional[str] = None,
+    api_key: Optional[str] = None,
+    max_tokens: int = 1024,
+) -> str:
+    """Chama a API OpenAI (GPT-4o, gpt-4o-mini, etc.) — apenas texto."""
+    try:
+        from openai import OpenAI
+    except ImportError:
+        raise ImportError("Para usar a OpenAI, instale: pip install openai")
+    api_key = api_key or os.environ.get(ENV_OPENAI_API_KEY)
+    if not api_key:
+        raise ValueError("Defina OPENAI_API_KEY ou passe api_key")
+    model = modelo or os.environ.get(ENV_OPENAI_MODEL) or DEFAULT_OPENAI_MODEL
+    client = OpenAI(api_key=api_key)
+    response = client.chat.completions.create(
+        model=model,
+        messages=[{"role": "user", "content": prompt}],
+        max_tokens=max_tokens,
+    )
+    return (response.choices[0].message.content or "").strip()
+
+
+def consultar_openai_vision(
+    prompt: str,
+    caminho_imagem: str,
+    modelo: Optional[str] = None,
+    api_key: Optional[str] = None,
+    max_tokens: int = 1024,
+) -> str:
+    """Chama a API OpenAI com imagem (ex.: gpt-4o, gpt-4o-mini)."""
+    try:
+        from openai import OpenAI
+    except ImportError:
+        raise ImportError("Para usar a OpenAI, instale: pip install openai")
+    api_key = api_key or os.environ.get(ENV_OPENAI_API_KEY)
+    if not api_key:
+        raise ValueError("Defina OPENAI_API_KEY ou passe api_key")
+    model = modelo or os.environ.get(ENV_OPENAI_MODEL) or DEFAULT_OPENAI_MODEL
+    if not os.path.isfile(caminho_imagem):
+        raise FileNotFoundError(f"Imagem não encontrada: {caminho_imagem}")
+    data_url = _imagem_para_base64_data_url(caminho_imagem)
+    content = [
+        {"type": "text", "text": prompt},
+        {"type": "image_url", "image_url": {"url": data_url}},
+    ]
+    client = OpenAI(api_key=api_key)
+    response = client.chat.completions.create(
+        model=model,
+        messages=[{"role": "user", "content": content}],
+        max_tokens=max_tokens,
+    )
+    return (response.choices[0].message.content or "").strip()
+
+
 def _imagem_para_base64_data_url(caminho: str) -> str:
     """Lê arquivo de imagem e retorna data URL em base64 (ex: data:image/png;base64,...)."""
     with open(caminho, "rb") as f:
@@ -240,6 +305,9 @@ def consultar_llama_vision(
     groq_api_key: Optional[str] = None,
     groq_model: Optional[str] = None,
     groq_stream: bool = False,
+    use_openai: Optional[bool] = None,
+    openai_api_key: Optional[str] = None,
+    openai_model: Optional[str] = None,
     use_api: Optional[bool] = None,
     api_base_url: Optional[str] = None,
     api_key: Optional[str] = None,
@@ -247,13 +315,11 @@ def consultar_llama_vision(
 ) -> str:
     """
     Chama o modelo de linguagem (e visão, se houver imagem).
-    Ordem: Groq (Llama 4 Scout com vision) > API OpenAI-compatible > Ollama local.
-    Com imagem + Groq: usa consultar_groq_vision (mesmo modelo para OCR e texto).
+    Ordem: Groq > OpenAI > API OpenAI-compatible > Ollama local.
     """
     if use_groq is None:
         use_groq = _usar_groq() or groq_api_key is not None
     if use_groq:
-        # Groq usa sempre o modelo Llama 4 Scout (vision); não usar nome do Ollama (llama3.2-vision)
         model_groq = groq_model or os.environ.get(ENV_GROQ_MODEL) or DEFAULT_GROQ_MODEL
         if caminho_imagem and os.path.isfile(caminho_imagem):
             return consultar_groq_vision(
@@ -267,6 +333,22 @@ def consultar_llama_vision(
             modelo=model_groq,
             api_key=groq_api_key,
             stream=groq_stream,
+        )
+    if use_openai is None:
+        use_openai = _usar_openai() or openai_api_key is not None
+    if use_openai:
+        model_openai = openai_model or os.environ.get(ENV_OPENAI_MODEL) or DEFAULT_OPENAI_MODEL
+        if caminho_imagem and os.path.isfile(caminho_imagem):
+            return consultar_openai_vision(
+                prompt,
+                caminho_imagem,
+                modelo=model_openai,
+                api_key=openai_api_key,
+            )
+        return consultar_openai(
+            prompt,
+            modelo=model_openai,
+            api_key=openai_api_key,
         )
     if use_api is None:
         use_api = _usar_api() or api_base_url is not None
@@ -298,6 +380,9 @@ def melhor_jogada(
     groq_api_key: Optional[str] = None,
     groq_model: Optional[str] = None,
     groq_stream: bool = False,
+    use_openai: Optional[bool] = None,
+    openai_api_key: Optional[str] = None,
+    openai_model: Optional[str] = None,
     use_api: Optional[bool] = None,
     api_base_url: Optional[str] = None,
     api_key: Optional[str] = None,
@@ -309,7 +394,8 @@ def melhor_jogada(
     Retorna dict com: probabilidade_vitoria, recomendacao (texto do modelo), prompt_usado.
 
     Provedores (prioridade):
-    - Groq (Llama 4 Scout): defina GROQ_API_KEY ou use_groq=True com groq_api_key.
+    - Groq (Llama 4 Scout): defina GROQ_API_KEY ou use_groq=True.
+    - OpenAI (GPT-4o, gpt-4o-mini): defina OPENAI_API_KEY ou use_openai=True.
     - API OpenAI-compatible: defina LLAMA_VISION_API_BASE_URL ou use_api=True.
     - Ollama local: padrão se nenhum dos anteriores.
     """
@@ -344,6 +430,9 @@ def melhor_jogada(
         groq_api_key=groq_api_key,
         groq_model=groq_model,
         groq_stream=groq_stream,
+        use_openai=use_openai,
+        openai_api_key=openai_api_key,
+        openai_model=openai_model,
         use_api=use_api,
         api_base_url=api_base_url,
         api_key=api_key,

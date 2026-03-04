@@ -14,18 +14,22 @@ from tkinter import ttk, messagebox
 DIR_PROJETO = os.path.dirname(os.path.abspath(__file__))
 ARQUIVO_ENV = os.path.join(DIR_PROJETO, ".env")
 
-# Groq tem prioridade: se GROQ_API_KEY estiver definida, usa Llama 4 Scout
+# Prioridade: Groq > OpenAI > API custom > Ollama
 VARIAVEIS_GROQ = [
     ("GROQ_API_KEY", "Chave da API Groq (obrigatório para Groq)", ""),
     ("GROQ_MODEL", "Modelo Groq", "meta-llama/llama-4-scout-17b-16e-instruct"),
 ]
-# API OpenAI-compatible (ex.: Llama Vision); usada se GROQ_API_KEY não estiver definida
+VARIAVEIS_OPENAI = [
+    ("OPENAI_API_KEY", "Chave da API OpenAI (obrigatório para OpenAI)", ""),
+    ("OPENAI_MODEL", "Modelo OpenAI (ex.: gpt-4o, gpt-4o-mini)", "gpt-4o-mini"),
+]
+# API OpenAI-compatible (outros provedores); usada se Groq e OpenAI não estiverem definidos
 VARIAVEIS_API = [
     ("LLAMA_VISION_API_BASE_URL", "URL base da API (outros provedores)", "https://api.exemplo.com/v1"),
     ("LLAMA_VISION_API_KEY", "Chave da API (opcional)", ""),
     ("LLAMA_VISION_MODEL", "Nome do modelo na API", "meta-llama/Llama-3.2-11B-Vision-Instruct"),
 ]
-VARIAVEIS = VARIAVEIS_GROQ + VARIAVEIS_API
+VARIAVEIS = VARIAVEIS_GROQ + VARIAVEIS_OPENAI + VARIAVEIS_API
 
 
 def carregar_env() -> dict[str, str]:
@@ -47,7 +51,7 @@ def carregar_env() -> dict[str, str]:
 def salvar_env(valores: dict[str, str]) -> None:
     """Escreve o .env com os valores informados."""
     with open(ARQUIVO_ENV, "w", encoding="utf-8") as f:
-        f.write("# AI Poker Player - Groq (Llama 4 Scout) e/ou API OpenAI-compatible\n")
+        f.write("# AI Poker Player - Groq / OpenAI / API / Ollama\n")
         f.write("# Gerado pela interface de configuração.\n\n")
         f.write("# --- Groq (prioridade) ---\n")
         for nome, _, _ in VARIAVEIS_GROQ:
@@ -55,7 +59,13 @@ def salvar_env(valores: dict[str, str]) -> None:
             if "\n" in valor or " " in valor or not valor:
                 valor = f'"{valor}"'
             f.write(f"{nome}={valor}\n")
-        f.write("\n# --- Outra API (se GROQ_API_KEY não estiver definida) ---\n")
+        f.write("\n# --- OpenAI (GPT-4o, gpt-4o-mini) ---\n")
+        for nome, _, _ in VARIAVEIS_OPENAI:
+            valor = valores.get(nome, "")
+            if "\n" in valor or " " in valor or not valor:
+                valor = f'"{valor}"'
+            f.write(f"{nome}={valor}\n")
+        f.write("\n# --- Outra API (OpenAI-compatible) ---\n")
         for nome, _, _ in VARIAVEIS_API:
             valor = valores.get(nome, "")
             if "\n" in valor or " " in valor or not valor:
@@ -66,8 +76,8 @@ def salvar_env(valores: dict[str, str]) -> None:
 def criar_janela() -> tk.Tk:
     """Cria e retorna a janela principal de configuração."""
     root = tk.Tk()
-    root.title("AI Poker Player — Configuração (Groq / API / Ollama)")
-    root.geometry("560x340")
+    root.title("AI Poker Player — Configuração (Groq / OpenAI / API / Ollama)")
+    root.geometry("560x400")
     root.resizable(True, True)
 
     # Carregar valores atuais (env do sistema + .env)
@@ -78,7 +88,7 @@ def criar_janela() -> tk.Tk:
     frame.pack(fill=tk.BOTH, expand=True)
 
     ttk.Label(frame, text="Variáveis de ambiente", font=("", 10, "bold")).pack(anchor=tk.W)
-    ttk.Label(frame, text="Salvas em .env e usadas ao rodar main.py. Groq tem prioridade se GROQ_API_KEY estiver definida.", foreground="gray").pack(anchor=tk.W)
+    ttk.Label(frame, text="Salvas em .env. Ordem: Groq > OpenAI > outra API > Ollama.", foreground="gray").pack(anchor=tk.W)
     ttk.Separator(frame, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=8)
 
     entries = {}
@@ -88,6 +98,16 @@ def criar_janela() -> tk.Tk:
         row.pack(fill=tk.X, pady=2)
         ttk.Label(row, text=label, width=38, anchor=tk.W).pack(side=tk.LEFT, padx=(0, 8))
         var = tk.StringVar(value=env_atual.get(nome, "" if nome == "GROQ_API_KEY" else placeholder))
+        entry = ttk.Entry(row, textvariable=var, width=42)
+        entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        entries[nome] = var
+
+    ttk.Label(frame, text="OpenAI (GPT-4o, gpt-4o-mini)", font=("", 9, "bold")).pack(anchor=tk.W, pady=(12, 2))
+    for nome, label, placeholder in VARIAVEIS_OPENAI:
+        row = ttk.Frame(frame)
+        row.pack(fill=tk.X, pady=2)
+        ttk.Label(row, text=label, width=38, anchor=tk.W).pack(side=tk.LEFT, padx=(0, 8))
+        var = tk.StringVar(value=env_atual.get(nome, "" if nome == "OPENAI_API_KEY" else placeholder))
         entry = ttk.Entry(row, textvariable=var, width=42)
         entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
         entries[nome] = var
@@ -106,8 +126,8 @@ def criar_janela() -> tk.Tk:
 
     def on_salvar():
         valores = {nome: entries[nome].get().strip() for nome, _, _ in VARIAVEIS}
-        if not valores.get("GROQ_API_KEY") and not valores.get("LLAMA_VISION_API_BASE_URL"):
-            messagebox.showwarning("Aviso", "Nenhuma API configurada. Defina GROQ_API_KEY (Groq) ou URL base (outra API); caso contrário será usado Ollama local.")
+        if not any([valores.get("GROQ_API_KEY"), valores.get("OPENAI_API_KEY"), valores.get("LLAMA_VISION_API_BASE_URL")]):
+            messagebox.showwarning("Aviso", "Nenhuma API configurada. Defina GROQ_API_KEY, OPENAI_API_KEY ou URL base (outra API); caso contrário será usado Ollama local.")
         salvar_env(valores)
         messagebox.showinfo("Salvo", f"Configuração salva em:\n{ARQUIVO_ENV}")
 
@@ -124,7 +144,7 @@ def criar_janela() -> tk.Tk:
     ttk.Button(botoes, text="Salvar em .env", command=on_salvar).pack(side=tk.LEFT, padx=(0, 8))
     ttk.Button(botoes, text="Abrir pasta do projeto", command=on_abrir_pasta).pack(side=tk.LEFT)
     ttk.Label(frame, text="", font=("", 8), foreground="gray").pack(anchor=tk.W)
-    ttk.Label(frame, text="Dica: preencha GROQ_API_KEY para usar Llama 4 Scout na Groq. Senão, use URL base ou Ollama local.", font=("", 8), foreground="gray").pack(anchor=tk.W)
+    ttk.Label(frame, text="Dica: GROQ_API_KEY (Groq) ou OPENAI_API_KEY (OpenAI) ou URL base (outra API). Senão: Ollama local.", font=("", 8), foreground="gray").pack(anchor=tk.W)
 
     return root
 

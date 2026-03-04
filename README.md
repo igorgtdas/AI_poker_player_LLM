@@ -19,15 +19,17 @@
 | Ordem | Provedor | Modelo | Uso |
 |-------|----------|--------|-----|
 | 1 | **Groq** | `meta-llama/llama-4-scout-17b-16e-instruct` (Llama 4 Scout) | Texto e **imagem (vision)** — extração e consulta |
-| 2 | API OpenAI-compatible | ex.: `meta-llama/Llama-3.2-11B-Vision-Instruct` | Visão e/ou texto |
-| 3 | **Ollama** (local) | `llama3.2-vision` | Visão local |
+| 2 | **OpenAI** | `gpt-4o`, `gpt-4o-mini` | Texto e **imagem (vision)** — extração e consulta |
+| 3 | API OpenAI-compatible | ex.: `meta-llama/Llama-3.2-11B-Vision-Instruct` | Visão e/ou texto |
+| 4 | **Ollama** (local) | `llama3.2-vision` | Visão local |
 
 ---
 
 ## Requisitos
 
 - **Python 3.8+**
-- **Groq (recomendado):** chave em [console.groq.com](https://console.groq.com) — modelo Llama 4 Scout com vision
+- **Groq (recomendado):** chave em [console.groq.com](https://console.groq.com) — Llama 4 Scout com vision
+- **OpenAI:** chave em [platform.openai.com](https://platform.openai.com) — use `gpt-4o` ou `gpt-4o-mini` (com vision)
 - **Opcional:** Ollama com `llama3.2-vision` ou outra API com suporte a imagem
 
 ---
@@ -69,10 +71,11 @@ Edite o `.env` com suas chaves ou use a interface gráfica (`python config_ui.py
 python config_ui.py
 ```
 
-- **Groq:** `GROQ_API_KEY` e `GROQ_MODEL` (padrão: `meta-llama/llama-4-scout-17b-16e-instruct`)
+- **Groq:** `GROQ_API_KEY` e `GROQ_MODEL` (padrão: Llama 4 Scout)
+- **OpenAI:** `OPENAI_API_KEY` e `OPENAI_MODEL` (padrão: `gpt-4o-mini`) — para usar GPT-4o ou gpt-4o-mini
 - **Outra API:** `LLAMA_VISION_API_BASE_URL`, `LLAMA_VISION_API_KEY`, `LLAMA_VISION_MODEL`
 
-Salve em `.env`. Se apenas a Groq estiver definida, o agente usa Llama 4 Scout para extração e consulta.
+Salve em `.env`. Ordem de uso: Groq > OpenAI > outra API > Ollama local.
 
 ### Variáveis de ambiente (referência)
 
@@ -80,6 +83,8 @@ Salve em `.env`. Se apenas a Groq estiver definida, o agente usa Llama 4 Scout p
 |----------|-----------|
 | `GROQ_API_KEY` | Chave da API Groq (prioridade) |
 | `GROQ_MODEL` | Modelo Groq (padrão: `meta-llama/llama-4-scout-17b-16e-instruct`) |
+| `OPENAI_API_KEY` | Chave da API OpenAI (para GPT-4o, gpt-4o-mini) |
+| `OPENAI_MODEL` | Modelo OpenAI (padrão: `gpt-4o-mini`) |
 | `LLAMA_VISION_API_BASE_URL` | URL base de API OpenAI-compatible |
 | `LLAMA_VISION_API_KEY` | Chave dessa API |
 | `LLAMA_VISION_MODEL` | Nome do modelo (ex.: `meta-llama/Llama-3.2-11B-Vision-Instruct`) |
@@ -118,6 +123,28 @@ set GROQ_API_KEY=sua-chave
 python main.py --extrair --imagem mesa.png
 ```
 
+Para usar **OpenAI** (GPT-4o ou gpt-4o-mini):
+
+```bash
+set OPENAI_API_KEY=sk-sua-chave
+set OPENAI_MODEL=gpt-4o-mini
+python main.py --extrair --imagem mesa.png
+```
+
+Ou na linha de comando: `python main.py --openai --openai-model gpt-4o --extrair --imagem mesa.png`
+
+**Extração por regiões (quadrantes):** a imagem pode ser dividida em 3 áreas com proporções fixas (válidas para qualquer tamanho):
+
+1. **Foto inteira** — contexto: total de jogadores, position, round, pot.
+2. **Parte central** — apenas as cartas do board (`community_cards`), sem as suas cartas.
+3. **Suas cartas** — apenas o recorte das suas hole cards (`player_cards`).
+
+Cada região é analisada pelo LLM com um prompt/schema específico; os resultados são mesclados em um único JSON. Use `--regioes` na linha de comando ou marque "Extrair por regiões" na interface gráfica. As proporções são definidas em `image_regions.py` (podem ser ajustadas conforme o layout da mesa).
+
+```bash
+python main.py --extrair --imagem mesa.png --regioes
+```
+
 ### 3. Interface gráfica para imagem
 
 ```bash
@@ -139,9 +166,10 @@ O extrator devolve um objeto com as chaves abaixo. O pipeline aceita tanto esses
 |-------|------|-----------|
 | `total_number_of_players` | int | Número de jogadores na mão |
 | `position` | string | Sua posição: UTG, UTG+1, HJ, CO, BTN, SB, BB |
+| `round` | string | Rodada atual: `preflop`, `flop`, `turn`, `river` |
 | `player_cards` | array | **0 ou 2** cartas (hole cards). Vazio `[]` se sem cartas na mão, fold ou não visível |
-| `community_cards` | array | 0 (preflop), 3 (flop), 4 (turn) ou 5 (river) cartas |
-| `money_beted` | number | Valor já no pote / aposta a pagar (em BB ou valor absoluto) |
+| `community_cards` | array | Cartas do board. **Vazio `[]` no preflop** (nenhuma carta na mesa). Depois: 3 (flop), 4 (turn), 5 (river) |
+| `pot` | number | Pot (pote) — valor já no pote / aposta a pagar (em BB ou valor absoluto) |
 | `risk_based_on_position_player` | string | Breve avaliação do risco pela posição |
 
 Exemplo:
@@ -150,21 +178,36 @@ Exemplo:
 {
   "total_number_of_players": 2,
   "position": "BTN",
+  "round": "flop",
   "player_cards": ["As", "Kh"],
   "community_cards": ["Ah", "Ks", "7d"],
-  "money_beted": 5.0,
+  "pot": 5.0,
   "risk_based_on_position_player": "button, last to act"
 }
 ```
 
-Com mão vazia (sem erro):
+Preflop (sem cartas na mesa — `community_cards` vazio):
 
 ```json
 {
   "position": "BTN",
+  "round": "preflop",
+  "player_cards": ["As", "Kh"],
+  "community_cards": [],
+  "pot": 2.0,
+  "risk_based_on_position_player": ""
+}
+```
+
+Mão vazia (sem erro):
+
+```json
+{
+  "position": "BTN",
+  "round": "flop",
   "player_cards": [],
   "community_cards": ["Ah", "Ks", "7d"],
-  "money_beted": 2.0,
+  "pot": 2.0,
   "risk_based_on_position_player": ""
 }
 ```
@@ -230,6 +273,7 @@ print(resultado["probabilidade_vitoria"], resultado["recomendacao"])
 | `main.py` | CLI: entrada manual ou `--extrair --imagem` |
 | `config_ui.py` | Interface para configurar `.env` (Groq, API) |
 | `front_imagem.py` | Interface para enviar imagem e ver JSON + recomendação |
+| `image_regions.py` | Recorte proporcional da imagem em full, community_cards e hole_cards |
 
 ---
 

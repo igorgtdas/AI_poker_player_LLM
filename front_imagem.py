@@ -26,6 +26,8 @@ def criar_janela() -> tk.Tk:
     # Variáveis
     caminho_imagem = tk.StringVar(value="")
     username_player = tk.StringVar(value="")
+    position_manual = tk.StringVar(value="")
+    use_regions = tk.BooleanVar(value=False)
 
     # Topo: instrução + botão de seleção
     frame_topo = ttk.Frame(root, padding=10)
@@ -48,8 +50,23 @@ def criar_janela() -> tk.Tk:
     entry_username.pack(side=tk.LEFT, fill=tk.X, expand=True)
     ttk.Label(frame_user, text="Opcional. Seu nome na mesa para o modelo identificar suas cartas.", font=("", 8), foreground="gray").pack(anchor=tk.W, padx=(0, 0))
 
+    # Posição manual (sobrescreve OCR se preenchido)
+    frame_pos = ttk.Frame(frame_topo)
+    frame_pos.pack(fill=tk.X, pady=4)
+    ttk.Label(frame_pos, text="Posição (manual):", width=18, anchor=tk.W).pack(side=tk.LEFT, padx=(0, 8))
+    combo_pos = ttk.Combobox(frame_pos, textvariable=position_manual, values=["", "UTG", "UTG+1", "HJ", "CO", "BTN", "SB", "BB"], width=10, state="readonly")
+    combo_pos.pack(side=tk.LEFT, fill=tk.X)
+    ttk.Label(frame_pos, text="Opcional. Se o OCR não acertar, escolha sua posição aqui.", font=("", 8), foreground="gray").pack(anchor=tk.W, padx=(0, 0))
+
+    # Opção: extrair por regiões (quadrantes)
+    frame_regioes = ttk.Frame(frame_topo)
+    frame_regioes.pack(fill=tk.X, pady=4)
+    ck_regioes = ttk.Checkbutton(frame_regioes, text="Extrair por regiões (contexto + board + minhas cartas em 3 imagens)", variable=use_regions)
+    ck_regioes.pack(anchor=tk.W)
+    ttk.Label(frame_regioes, text="Recorta a imagem em 3 áreas e analisa cada uma com schema específico.", font=("", 8), foreground="gray").pack(anchor=tk.W, padx=(0, 0))
+
     # Botão Analisar
-    btn_analisar = ttk.Button(frame_topo, text="Analisar imagem (extrair + recomendar)", command=lambda: _rodar_analise(root, caminho_imagem, username_player, txt_resultado, btn_analisar))
+    btn_analisar = ttk.Button(frame_topo, text="Analisar imagem (extrair + recomendar)", command=lambda: _rodar_analise(root, caminho_imagem, username_player, position_manual, use_regions, txt_resultado, btn_analisar))
     btn_analisar.pack(pady=4)
 
     # Área de resultado (rolável)
@@ -75,18 +92,20 @@ def _escolher_imagem(caminho_var: tk.StringVar, lbl: ttk.Label) -> None:
         lbl.config(text=os.path.basename(path), foreground="")
 
 
-def _rodar_analise(root: tk.Tk, caminho_var: tk.StringVar, username_var: tk.StringVar, txt: scrolledtext.ScrolledText, btn: ttk.Button) -> None:
+def _rodar_analise(root: tk.Tk, caminho_var: tk.StringVar, username_var: tk.StringVar, position_var: tk.StringVar, use_regions_var: tk.BooleanVar, txt: scrolledtext.ScrolledText, btn: ttk.Button) -> None:
     path = caminho_var.get().strip()
     if not path or not os.path.isfile(path):
         messagebox.showwarning("Aviso", "Selecione uma imagem válida antes de analisar.")
         return
 
     username = username_var.get().strip() or None
+    position_manual = position_var.get().strip() or None
+    use_reg = bool(use_regions_var.get())
 
     def tarefa():
         try:
             from pipeline import imagem_para_recomendacao
-            resultado = imagem_para_recomendacao(path, username_player=username)
+            resultado = imagem_para_recomendacao(path, username_player=username, position_manual=position_manual, use_regions=use_reg)
         except Exception as e:
             resultado = None
             erro = str(e)
