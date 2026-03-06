@@ -61,9 +61,9 @@ def criar_janela() -> tk.Tk:
     # Opção: extrair por regiões (quadrantes)
     frame_regioes = ttk.Frame(frame_topo)
     frame_regioes.pack(fill=tk.X, pady=4)
-    ck_regioes = ttk.Checkbutton(frame_regioes, text="Extrair por regiões (contexto + board + minhas cartas em 3 imagens)", variable=use_regions)
+    ck_regioes = ttk.Checkbutton(frame_regioes, text="Extrair por regiões (6 assentos + D, contexto, board e minhas cartas)", variable=use_regions)
     ck_regioes.pack(anchor=tk.W)
-    ttk.Label(frame_regioes, text="Recorta a imagem em 3 áreas e analisa cada uma com schema específico.", font=("", 8), foreground="gray").pack(anchor=tk.W, padx=(0, 0))
+    ttk.Label(frame_regioes, text="Usa recortes dos 6 jogadores e do botão D para posição; depois board e suas cartas.", font=("", 8), foreground="gray").pack(anchor=tk.W, padx=(0, 0))
 
     # Botão Analisar
     btn_analisar = ttk.Button(frame_topo, text="Analisar imagem (extrair + recomendar)", command=lambda: _rodar_analise(root, caminho_imagem, username_player, position_manual, use_regions, txt_resultado, btn_analisar))

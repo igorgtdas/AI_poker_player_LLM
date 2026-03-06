@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.4.0]
+
+### Adicionado
+
+- **6 regiões de assentos** (`image_regions.py`): recortes por assento (seat_12h … seat_10h) e região do botão dealer, com coordenadas ajustáveis (ref 953×663 px)
+- **Identificação do BTN pelos assentos**: extração de posição usando imagem composta só dos 6 assentos; o botão dealer (D) é identificado **dentro** do recorte do assento onde aparece (evita confusão BTN/CO)
+- **`recortar_assentos_e_botao()`** e **`montar_imagem_assentos_composite()`** para o extrator; parâmetro **`use_seat_crops`** na extração por regiões (padrão True)
+- Pipeline e front: opção de extração por regiões passa a usar os 6 assentos + board + hole cards
+
+### Alterado
+
+- Regiões dos assentos definidas por retângulos em pixels convertidos para proporção (permite ajuste fino por mesa)
+- Prompt de assentos (PROMPT_SEATS) passa a usar apenas os 6 crops; D deve ser visto em um dos recortes de assento
+
+---
+
 ## [0.3.0]
 
 ### Adicionado
