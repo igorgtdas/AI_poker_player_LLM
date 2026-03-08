@@ -3,7 +3,7 @@
 **Agente de IA** para Texas Hold'em que analisa posição, cartas e contexto da mesa e sugere a **melhor jogada** (FOLD, CHECK, CALL, RAISE). Suporta entrada manual ou **extração a partir de imagem** da mesa (screenshot) via LLM com visão.
 
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![License](https://img.shields.io/badge/License-Custom-blue.svg)](LICENSE)
 
 ---
 
@@ -317,4 +317,4 @@ No GitHub, em **Releases**, crie um release a partir da tag e descreva as mudan�
 
 ## Licença
 
-[MIT](LICENSE)
+[Licença personalizada](LICENSE) — uso pessoal, educacional e de pesquisa; uso comercial requer permissão do autor.
