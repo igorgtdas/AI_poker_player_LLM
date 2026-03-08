@@ -1,5 +1,31 @@
 # Changelog
 
+## [0.5.0]
+
+### Adicionado
+
+- **Motor de decisão pré-flop** (`preflop_engine.py`): PreflopState, classify_hand (premium/strong/playable, suited_connector, etc.), cenários (folded_to_hero, facing_limp, facing_open_raise), ranges por posição; integrado ao advisor quando `round == "preflop"`
+- **Analista técnico + agente de veredito**: recomendação em formato estruturado (Recommendation, Confidence, Main reasons, Data limitations, Strategic note); segundo agente extrai veredito enum (FOLD, CHECK, CALL, RAISE X BB)
+- **Paralelização dos 6 crops de assentos**: chamadas ao LLM de visão por assento executadas em paralelo (ThreadPoolExecutor) para reduzir tempo total
+- **Campo `dealer_button_nao_identificado`** no schema quando `button_seat` está vazio; sugestão final pode mencionar quando o dealer não foi identificado
+- **Log de análises em CSV** (`logs/analyses.csv`): timestamp, path, position, pot, round, cartas, hand_sequence, probability, recommendation, veredito, player_bets, error
+- **Debug de regiões**: `DEBUG_SAVE_REGIONS=1` salva os crops em `capturas/debug_regions/<timestamp>/`
+
+### Alterado
+
+- **player_bets** sem campo `bet` (evita confusão com stack); apenas seat, name, dealer_button
+- **total_number_of_players** calculado de forma determinística (contagem de assentos com name não vazio)
+- **risk_based_on_position_player** derivado da posição (não mais do LLM): descrição por posição (BTN, SB, BB, UTG, etc.)
+- **Apenas um assento** pode ter `dealer_button: true`; validação e preferência por false em caso de dúvida no prompt
+- **Dealer button** não é mais recortado como região isolada; avaliado apenas dentro dos crops dos assentos; descrição do puck no prompt
+- **classify_hand** no preflop_engine: is_connector, suited_connector, weak_offsuit_connector
+
+### Corrigido
+
+- Sintaxe em `dealer_button_nao_identificado` (expressão condicional inválida)
+
+---
+
 ## [0.4.0]
 
 ### Adicionado

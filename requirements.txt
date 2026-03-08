@@ -3,3 +3,5 @@ openai>=1.0.0
 groq>=0.4.0
 python-dotenv>=1.0.0
 Pillow>=10.0.0
+pynput>=1.7.0
+keyboard>=0.13.5

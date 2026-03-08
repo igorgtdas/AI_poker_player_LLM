@@ -6,7 +6,7 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from advisor import melhor_jogada
-from extractor import extrair_json_da_imagem
+from extractor import extrair_json_da_imagem, posicao_por_assento
 from poker_engine import normalizar_carta_str
 
 
@@ -20,11 +20,14 @@ def _dados_unificados(dados: dict) -> dict:
         "quantos_player_na_mesa": dados.get("total_number_of_players") or dados.get("quantos_player_na_mesa") or 2,
         "bbs_apostadas": dados.get("pot") or dados.get("money_beted") or dados.get("bbs_apostadas") or 0,
         "risco_baseado_na_posicao": dados.get("risk_based_on_position_player") or dados.get("risco_baseado_na_posicao") or "",
+        "player_bets": dados.get("player_bets") or [],
+        "button_seat": dados.get("button_seat") or "",
+        "hand_sequence": dados.get("hand_sequence") or "",
     }
 
 
 def _contexto_extra(dados: dict) -> str:
-    """Monta texto de contexto para o consultor a partir de bbs e risco."""
+    """Monta texto de contexto para o consultor: bbs, risco e apostas por jogador COM POSIÇÃO (BTN, SB, etc.) para a LLM entender intenção por posição."""
     partes = []
     bbs = dados.get("bbs_apostadas")
     if bbs is not None and bbs > 0:
@@ -32,6 +35,24 @@ def _contexto_extra(dados: dict) -> str:
     risco = dados.get("risco_baseado_na_posicao") or ""
     if risco:
         partes.append(f"Risco pela posição: {risco}")
+    seq = dados.get("hand_sequence") or ""
+    if seq:
+        partes.append(f"Your current hand (best 5 cards): {seq}")
+    # Jogadores por posição (sem valor apostado no schema — removido para evitar confusão com stack)
+    player_bets = dados.get("player_bets") or []
+    button_seat = (dados.get("button_seat") or "").strip().lower()
+    if player_bets:
+        seat_to_pos = posicao_por_assento(button_seat) if button_seat else {}
+        pos_strs = []
+        for p in player_bets:
+            name = (p.get("name") or "").strip()
+            if not name:
+                continue
+            seat = (p.get("seat") or "").strip().lower()
+            pos_label = seat_to_pos.get(seat, seat) if seat_to_pos else seat
+            pos_strs.append(f"{pos_label} ({name})")
+        if pos_strs:
+            partes.append("Players by position: " + "; ".join(pos_strs))
     return ". ".join(partes) if partes else ""
 
 
@@ -126,6 +147,7 @@ def imagem_para_recomendacao(
         blind=blind,
         acoes_anteriores=acoes_anteriores or None,
         caminho_imagem=None,
+        dados_completos=dados,
         use_groq=use_groq,
         groq_api_key=groq_api_key,
         groq_model=groq_model,
@@ -139,9 +161,13 @@ def imagem_para_recomendacao(
         api_model=api_model,
     )
 
-    return {
+    out = {
         "dados_extraidos": dados,
         "probabilidade_vitoria": resultado["probabilidade_vitoria"],
         "recomendacao": resultado["recomendacao"],
         "prompt_usado": resultado["prompt_usado"],
+        "veredito": resultado.get("veredito", ""),
     }
+    if resultado.get("preflop_engine") is not None:
+        out["preflop_engine"] = resultado["preflop_engine"]
+    return out

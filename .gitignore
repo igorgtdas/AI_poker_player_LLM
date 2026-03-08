@@ -6,6 +6,12 @@
 *api_key*.txt
 *_key*.txt
 
+# Config local (área de captura da mesa)
+poker_capture_region.json
+
+# Última captura pelo atalho (fica em capturas/ultima_captura.png)
+capturas/
+
 # Python
 __pycache__/
 *.py[cod]
