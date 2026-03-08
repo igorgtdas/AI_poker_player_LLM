@@ -16,6 +16,9 @@ from tkinter import ttk, filedialog, messagebox, scrolledtext
 LOG_DIR = "logs"
 LOG_CSV = "analyses.csv"
 
+# Versão exibida na interface (alinhada a pyproject.toml)
+VERSION = "0.5.0"
+
 
 def _caminho_log_csv() -> str:
     """Caminho do CSV de log (na pasta do projeto / logs / analyses.csv)."""
@@ -242,6 +245,9 @@ def criar_janela() -> tk.Tk:
     ttk.Label(root, text="Resultado", font=("", 9, "bold")).pack(anchor=tk.W, padx=10, pady=(8, 0))
     txt_resultado = scrolledtext.ScrolledText(root, wrap=tk.WORD, height=18, font=("Consolas", 9), state=tk.DISABLED, padx=8, pady=8)
     txt_resultado.pack(fill=tk.BOTH, expand=True, padx=10, pady=6)
+
+    # Rodapé: só a versão
+    ttk.Label(root, text=f"v{VERSION}", font=("", 8), foreground="gray").pack(anchor=tk.E, padx=10, pady=(0, 6))
 
     # Refs para o atalho Ctrl+Shift+P (captura e analisa)
     root._captura_refs = {
