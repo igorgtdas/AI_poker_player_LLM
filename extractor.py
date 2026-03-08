@@ -9,6 +9,7 @@ import json
 import os
 import re
 import tempfile
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Optional
 
 # Schema esperado do JSON extraído (para validação e defaults)
@@ -20,6 +21,10 @@ SCHEMA_EXTRACAO = {
     "community_cards": [],              # list[str]: vazio [] no preflop; 3 (flop), 4 (turn) ou 5 (river)
     "pot": 0.0,                         # float: pot (pote) — total no pote / aposta a pagar (em BB ou valor)
     "risk_based_on_position_player": "", # str: descrição opcional do risco pela posição
+    "player_bets": [],                  # list[dict]: por assento — seat, name, dealer_button (valor apostado removido: confundia com stack)
+    "button_seat": "",                  # str: assento do BTN (ex.: seat_6h) para mapear posição por jogador
+    "hand_sequence": "",                # str: melhor mão atual (ex.: "pair", "straight", "flush") a partir das cartas
+    "dealer_button_nao_identificado": False,  # bool: True quando button_seat está vazio (dealer não identificado)
 }
 
 PROMPT_EXTRACAO = """You are analyzing a Texas Hold'em poker table image (screenshot or photo).
@@ -74,21 +79,64 @@ Respond with a single valid JSON: { "player_cards": [ "card1", "card2" ] }
 - If no cards or folded/not visible, use [].
 - Exactly 0 or 2 cards. No other keys. No explanation."""
 
-# Prompt para a imagem composta dos 6 assentos: identificar BTN pelo D dentro do recorte do assento
+# Descrição do dealer button para os prompts: botão físico da mesa (não confundir com texto "D" em chips ou UI).
+# Use como referência fixa para comparação; o dealer só é avaliado dentro dos crops dos assentos (não há crop isolado).
+DESCRICAO_DEALER_BUTTON = (
+    "The dealer button is a physical puck on the table: a circular disk, light grey or off-white, "
+    "with a single bold capital letter 'D' in dark grey in the center (sans-serif). "
+    "It may have a subtle darker border or shadow. It sits on the table felt (dark background). "
+    "Do not confuse it with green UI buttons, chip labels, or other text; only this specific circular puck counts."
+)
+# Caminho da imagem de referência do dealer (para comparação, se necessário). Coloque o PNG do puck em assets/.
+DEALER_BUTTON_REFERENCE_IMAGE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "dealer_button_reference.png")
+
+# Prompt para a imagem composta dos 6 assentos: dealer_button por crop e apostas; total_number_of_players é calculado depois (por nome não vazio).
 PROMPT_SEATS = """You are viewing a composite image of a 6-max poker table. It has exactly 6 labeled crops, one per seat:
 
 Row 1: seat_12h (top), seat_2h (top-right), seat_4h (right).
 Row 2: seat_6h labeled "Hero" (bottom center — that is me), seat_8h (bottom-left), seat_10h (top-left).
 
-The dealer button (D) is a white circle with the letter "D" and appears INSIDE or right next to one of these 6 seat crops — that seat is the Button (BTN). Look at each crop: in which one do you see the D? The D is usually near the player's name or stack in that crop.
+DEALER BUTTON (check in EACH crop):
+""" + DESCRICAO_DEALER_BUTTON + """
 
-Important: Do NOT guess from position. The D is visible inside exactly one of these 6 crops. If you see the D in the crop labeled "Hero" (seat_6h), then button_seat is seat_6h. If you see the D in the crop to the left of Hero (seat_8h), then button_seat is seat_8h. And so on.
+For EACH seat you must do two things:
 
-Also count how many seats show an active player (name/stack; exclude "Sitting Out").
+A) dealer_button — For that seat's crop only: verify if the dealer button (as described above) is contained in this crop. If yes, set "dealer_button": true for that seat; if no, set "dealer_button": false. Check every crop: seat_12h, then seat_2h, then seat_4h, then seat_6h, then seat_8h, then seat_10h. Exactly one seat should have dealer_button true.
+
+B) name — For that same crop: "name": the player username/nick visible (e.g. "SLOW GIN 1962", "Hero"). Use "" (empty string) if the seat is empty, "Sitting Out", or no player visible (do not count this seat as a player).
 
 Respond with ONLY a valid JSON with exactly these keys:
-- "button_seat": string, one of: seat_12h, seat_2h, seat_4h, seat_6h, seat_8h, seat_10h (the seat crop IN WHICH you see the dealer button D).
-- "total_number_of_players": integer (2–6).
+- "button_seat": string, the seat whose crop contains the dealer button (one of: seat_12h, seat_2h, seat_4h, seat_6h, seat_8h, seat_10h). Must match the seat that has dealer_button true in player_bets.
+- "player_bets": array of 6 objects, one per seat in this order: seat_12h, seat_2h, seat_4h, seat_6h, seat_8h, seat_10h. Each object: { "seat": "seat_12h", "name": "username or empty string", "dealer_button": true or false }. For each seat, verify if the dealer button is in THAT crop and set dealer_button accordingly; use "" for name if no player at that seat.
+
+Example: "player_bets": [ {"seat": "seat_12h", "name": "SLOW GIN", "dealer_button": false}, {"seat": "seat_2h", "name": "", "dealer_button": false}, {"seat": "seat_4h", "name": "tiwtiv116", "dealer_button": false}, {"seat": "seat_6h", "name": "Hero", "dealer_button": true}, {"seat": "seat_8h", "name": "lav0828", "dealer_button": false}, {"seat": "seat_10h", "name": "smos203", "dealer_button": false} ]
+
+Output only the JSON object. No explanation."""
+
+# Prompt para um único crop de assento: extrair name e dealer_button (sem bet: confundia com stack).
+def _prompt_um_assento(seat: str) -> str:
+    hero_note = ' This seat is "Hero" (bottom center, the player whose perspective we use).' if seat == "seat_6h" else ""
+    return f"""You are viewing the crop for a single seat at a poker table. This image shows ONLY the area for seat "{seat}".{hero_note}
+
+DEALER BUTTON — """ + DESCRICAO_DEALER_BUTTON + """
+
+Tasks for THIS crop only:
+1) dealer_button: Verify if the dealer button (as described above) is visible in this crop. If yes set "dealer_button": true; if no set "dealer_button": false. If in doubt whether it is in the image or not, prefer false. Only one seat on the whole table can have the dealer button; when uncertain, use false.
+2) "name": the player username/nick visible in this crop (e.g. "SLOW GIN 1962", "Hero"). Use "" (empty string) if the seat is empty, "Sitting Out", or no player visible.
+
+Respond with ONLY a valid JSON with exactly these keys:
+- "name": string (username or "" if empty seat)
+- "dealer_button": true or false (prefer false when in doubt)
+
+Output only the JSON object. No explanation."""
+
+
+# Prompt para o recorte seat_12h (topo da mesa): extrair apenas o valor do pot
+PROMPT_SEAT_12H_POT = """You are viewing a crop from the TOP of a poker table (seat at 12 o'clock position). This area often shows the pot value.
+
+Extract the pot value if visible (e.g. "Pot: 945", "945", or a number next to "Pot").
+Respond with ONLY a valid JSON with exactly this key:
+- "pot": number (the pot value; use 0 if not visible or unclear).
 
 Output only the JSON object. No explanation."""
 
@@ -111,6 +159,21 @@ def _posicao_hero_from_button_seat(button_seat: str) -> str:
     # Posição do Hero = deslocamento a partir do BTN no sentido horário
     pos_idx = (hero_idx - btn_idx) % 6
     return _POSICOES_6MAX[pos_idx]
+
+
+def posicao_por_assento(button_seat: str) -> dict:
+    """
+    Retorna mapeamento seat -> posição (BTN, SB, BB, UTG, UTG+1, CO) para a LLM
+    interpretar intenção por posição. Ordem horária a partir do BTN.
+    """
+    button_seat = (button_seat or "").strip().lower()
+    if not button_seat or button_seat not in _ORDEM_SEATS:
+        return {s: _POSICOES_6MAX[i] for i, s in enumerate(_ORDEM_SEATS)}
+    btn_idx = _ORDEM_SEATS.index(button_seat)
+    return {
+        seat: _POSICOES_6MAX[(i - btn_idx) % 6]
+        for i, seat in enumerate(_ORDEM_SEATS)
+    }
 
 
 def _montar_prompt_extracao(username_player: Optional[str] = None) -> str:
@@ -164,6 +227,21 @@ def _extrair_json_da_resposta(texto: str) -> dict:
     return json.loads(texto[start:end])
 
 
+def _risk_descricao_por_posicao(position: str) -> str:
+    """Descrição do risco/contexto pela posição (inglês, para o schema). Sempre derivada da position, não do LLM."""
+    pos = (position or "").strip().upper()
+    d = {
+        "BTN": "button, last to act post-flop",
+        "SB": "small blind, first to act post-flop",
+        "BB": "big blind, already invested in pot",
+        "UTG": "early position, first to act preflop",
+        "UTG+1": "early position, second to act",
+        "HJ": "middle position, hijack",
+        "CO": "cutoff, late position, one before button",
+    }
+    return d.get(pos, "")
+
+
 def _normalizar_dados(bruto: dict) -> dict:
     """Normaliza e preenche defaults do dict extraído."""
     out = dict(SCHEMA_EXTRACAO)
@@ -191,15 +269,40 @@ def _normalizar_dados(bruto: dict) -> dict:
                 break
             except (TypeError, ValueError):
                 pass
-    if "risk_based_on_position_player" in bruto:
-        out["risk_based_on_position_player"] = str(bruto["risk_based_on_position_player"]).strip()
+    if "button_seat" in bruto and str(bruto["button_seat"]).strip():
+        out["button_seat"] = str(bruto["button_seat"]).strip().lower()
+    if "dealer_button_nao_identificado" in bruto:
+        out["dealer_button_nao_identificado"] = bool(bruto["dealer_button_nao_identificado"])
+    # Garantir: button_seat vazio → dealer não identificado
+    if not (out.get("button_seat") or "").strip():
+        out["dealer_button_nao_identificado"] = True
+    if "hand_sequence" in bruto and str(bruto["hand_sequence"]).strip():
+        out["hand_sequence"] = str(bruto["hand_sequence"]).strip().lower()
+    # risk_based_on_position_player sempre derivado da position (não do LLM)
+    out["risk_based_on_position_player"] = _risk_descricao_por_posicao(out.get("position", ""))
+    if "player_bets" in bruto and isinstance(bruto["player_bets"], list):
+        out["player_bets"] = []
+        for x in bruto["player_bets"][:6]:
+            if not isinstance(x, dict):
+                continue
+            db = x.get("dealer_button", False)
+            if isinstance(db, str):
+                db = db.strip().lower() in ("true", "1", "yes")
+            else:
+                db = bool(db)
+            out["player_bets"].append({
+                "seat": str(x.get("seat", "")),
+                "name": str(x.get("name", "")),
+                "dealer_button": db,
+            })
     return out
 
 
 def _extrair_posicao_por_assentos(caminho_imagem: str, llm_kwargs: dict) -> dict:
     """
-    Monta a imagem composta dos 6 assentos + dealer_button, chama o LLM uma vez
-    e retorna dict com position (do Hero) e total_number_of_players.
+    Monta a imagem composta apenas dos 6 assentos (sem crop isolado do dealer).
+    O LLM avalia cada crop de assento e seta dealer_button true no assento onde
+    o puck do dealer (circular, cinza claro, D escuro) aparece. Retorna position e total_number_of_players.
     """
     from image_regions import montar_imagem_assentos_composite
 
@@ -210,15 +313,45 @@ def _extrair_posicao_por_assentos(caminho_imagem: str, llm_kwargs: dict) -> dict
         composite.save(path_composite, "PNG")
         raw = _chamar_vision_llm(PROMPT_SEATS, path_composite, **llm_kwargs)
         data = _extrair_json_da_resposta(raw)
-        button_seat = (data.get("button_seat") or "").strip().lower()
-        total = data.get("total_number_of_players")
+        # Monta player_bets com dealer_button; deriva button_seat e total_number_of_players
+        button_seat_from_bets = ""
+        if "player_bets" in data and isinstance(data["player_bets"], list):
+            out_bets = []
+            for item in data["player_bets"][:6]:
+                if not isinstance(item, dict):
+                    continue
+                seat = (item.get("seat") or "").strip().lower()
+                name = (item.get("name") or "").strip()
+                dealer_btn = item.get("dealer_button", False)
+                if isinstance(dealer_btn, str):
+                    dealer_btn = dealer_btn.strip().lower() in ("true", "1", "yes")
+                else:
+                    dealer_btn = bool(dealer_btn)
+                if seat in _ORDEM_SEATS:
+                    out_bets.append({"seat": seat, "name": name, "dealer_button": dealer_btn})
+                    if dealer_btn:
+                        button_seat_from_bets = seat
+            out = {"player_bets": out_bets}
+        else:
+            out = {"player_bets": []}
+        # total_number_of_players: contagem determinística — só assentos com name não vazio estão na mesa
+        total_players = sum(1 for p in out["player_bets"] if (p.get("name") or "").strip())
+        out["total_number_of_players"] = max(2, min(6, total_players)) if total_players else 2
+        # Garantir só um dealer_button true (primeiro na ordem vence)
+        idx_first = next((i for i, p in enumerate(out["player_bets"]) if p.get("dealer_button")), None)
+        if idx_first is not None:
+            for i, p in enumerate(out["player_bets"]):
+                p["dealer_button"] = i == idx_first
+        # Position definida pelo assento com dealer_button=true; fallback para button_seat do LLM
+        button_seat = button_seat_from_bets or (data.get("button_seat") or "").strip().lower()
+        if button_seat not in _ORDEM_SEATS:
+            button_seat = ""
+        if idx_first is not None:
+            button_seat = out["player_bets"][idx_first]["seat"]
         position = _posicao_hero_from_button_seat(button_seat)
-        out = {"position": position}
-        if total is not None:
-            try:
-                out["total_number_of_players"] = int(total)
-            except (TypeError, ValueError):
-                out["total_number_of_players"] = 2
+        out["position"] = position
+        out["button_seat"] = button_seat
+        out["dealer_button_nao_identificado"] = (button_seat == "")
         return out
     finally:
         try:
@@ -226,6 +359,67 @@ def _extrair_posicao_por_assentos(caminho_imagem: str, llm_kwargs: dict) -> dict
                 os.remove(path_composite)
         except OSError:
             pass
+
+
+def _processar_um_crop_assento(seat: str, path: str, llm_kwargs: dict) -> dict:
+    """Processa um único crop de assento (para execução paralela). Retorna dict com seat, name, dealer_button."""
+    if not path or not os.path.isfile(path):
+        return {"seat": seat, "name": "", "dealer_button": False}
+    try:
+        prompt = _prompt_um_assento(seat)
+        raw = _chamar_vision_llm(prompt, path, **llm_kwargs)
+        data = _extrair_json_da_resposta(raw)
+    except Exception:
+        return {"seat": seat, "name": "", "dealer_button": False}
+    name = (data.get("name") or "").strip()
+    dealer_btn = data.get("dealer_button", False)
+    if isinstance(dealer_btn, str):
+        dealer_btn = dealer_btn.strip().lower() in ("true", "1", "yes")
+    else:
+        dealer_btn = bool(dealer_btn)
+    return {"seat": seat, "name": name, "dealer_button": dealer_btn}
+
+
+def _extrair_posicao_por_assentos_crop_a_crop(paths_por_regiao: dict, llm_kwargs: dict) -> dict:
+    """
+    Monta player_bets avaliando cada crop de assento em paralelo (6 chamadas LLM simultâneas).
+    Usa paths_por_regiao (seat_12h -> path, etc.). Retorna position, total_number_of_players, button_seat e player_bets.
+    """
+    results_by_seat = {}
+    with ThreadPoolExecutor(max_workers=6) as executor:
+        futures = {
+            executor.submit(_processar_um_crop_assento, seat, paths_por_regiao.get(seat) or "", llm_kwargs): seat
+            for seat in _ORDEM_SEATS
+        }
+        for future in as_completed(futures):
+            seat = futures[future]
+            try:
+                results_by_seat[seat] = future.result()
+            except Exception:
+                results_by_seat[seat] = {"seat": seat, "name": "", "dealer_button": False}
+    # Manter ordem dos assentos
+    out_bets = [results_by_seat.get(seat, {"seat": seat, "name": "", "dealer_button": False}) for seat in _ORDEM_SEATS]
+    # Garantir que só um assento tenha dealer_button true: primeiro true na ordem dos assentos vence
+    idx_first_true = None
+    for i, p in enumerate(out_bets):
+        if p.get("dealer_button"):
+            idx_first_true = i
+            break
+    if idx_first_true is not None:
+        for i, p in enumerate(out_bets):
+            p["dealer_button"] = i == idx_first_true
+        button_seat_from_bets = out_bets[idx_first_true]["seat"]
+    else:
+        button_seat_from_bets = ""
+    total_players = sum(1 for p in out_bets if (p.get("name") or "").strip())
+    out = {
+        "player_bets": out_bets,
+        "total_number_of_players": max(2, min(6, total_players)) if total_players else 2,
+        "button_seat": button_seat_from_bets if button_seat_from_bets in _ORDEM_SEATS else "",
+        "position": _posicao_hero_from_button_seat(button_seat_from_bets),
+        "dealer_button_nao_identificado": not button_seat_from_bets,
+    }
+    return out
 
 
 def _extrair_por_regioes(
@@ -238,27 +432,61 @@ def _extrair_por_regioes(
     primeiro usa a imagem composta dos 6 assentos + D para obter position e
     total_number_of_players; depois usa position (pot/risk), community_cards e hole_cards.
     """
-    from image_regions import salvar_regioes_em_temp
+    from image_regions import salvar_regioes_em_temp, salvar_regioes_para_debug
+
+    # Debug: salvar os crops em capturas/debug_regions/<timestamp> para inspecionar position
+    if os.environ.get("DEBUG_SAVE_REGIONS", "").strip().lower() in ("1", "true", "yes"):
+        try:
+            pasta_debug = salvar_regioes_para_debug(caminho_imagem)
+            import sys
+            print(f"[DEBUG] Regiões salvas em: {pasta_debug}", file=sys.stderr)
+        except Exception:
+            pass
 
     paths_por_regiao = {nome: path for nome, path in salvar_regioes_em_temp(caminho_imagem)}
     try:
         merged = dict(SCHEMA_EXTRACAO)
 
         if use_seat_crops:
-            # 0) Assentos + dealer button → position e total_number_of_players (mais preciso)
-            seat_data = _extrair_posicao_por_assentos(caminho_imagem, llm_kwargs)
+            # 0) Assentos → position, total_number_of_players e player_bets (um LLM por crop, maior acurácia)
+            seat_data = _extrair_posicao_por_assentos_crop_a_crop(paths_por_regiao, llm_kwargs)
             merged["position"] = seat_data.get("position", "BTN")
             if "total_number_of_players" in seat_data:
                 merged["total_number_of_players"] = seat_data["total_number_of_players"]
-            # 1) Região position só para pot e risk (position já veio dos assentos)
+            if "player_bets" in seat_data and isinstance(seat_data["player_bets"], list):
+                merged["player_bets"] = seat_data["player_bets"]
+            if seat_data.get("button_seat"):
+                merged["button_seat"] = seat_data["button_seat"]
+            # button_seat vazio = dealer não identificado → dealer_button_nao_identificado True no schema final
+            merged["dealer_button_nao_identificado"] = not bool((merged.get("button_seat") or "").strip())
+            # 1a) Pot a partir do recorte seat_12h (topo da mesa), mais confiável que o geral
+            path_seat_12h = paths_por_regiao.get("seat_12h")
+            if path_seat_12h:
+                try:
+                    raw_pot = _chamar_vision_llm(PROMPT_SEAT_12H_POT, path_seat_12h, **llm_kwargs)
+                    pot_data = _extrair_json_da_resposta(raw_pot)
+                    if "pot" in pot_data:
+                        try:
+                            merged["pot"] = float(pot_data["pot"])
+                        except (TypeError, ValueError):
+                            pass
+                except Exception:
+                    pass
+            # 1b) Região position só para risk e total (pot já veio do seat_12h)
             path_ctx = paths_por_regiao["position"]
             raw_ctx = _chamar_vision_llm(PROMPT_REGIAO_CONTEXTO, path_ctx, **llm_kwargs)
             ctx = _extrair_json_da_resposta(raw_ctx)
-            for key in ("pot", "risk_based_on_position_player"):
+            for key in ("risk_based_on_position_player",):
                 if key in ctx:
                     merged[key] = ctx[key]
             if "total_number_of_players" not in merged and "total_number_of_players" in ctx:
                 merged["total_number_of_players"] = ctx["total_number_of_players"]
+            # Se o pot do seat_12h não veio, usa o da região position como fallback
+            if ("pot" not in ctx or merged.get("pot", 0) == 0) and "pot" in ctx:
+                try:
+                    merged["pot"] = float(ctx["pot"])
+                except (TypeError, ValueError):
+                    pass
         else:
             # 1) Região position (contexto completo: position, pot, total, risk)
             path_ctx = paths_por_regiao["position"]
@@ -287,6 +515,20 @@ def _extrair_por_regioes(
         if merged["round"] == "preflop":
             merged["community_cards"] = []
 
+        # Sequência da mão (pair, straight, flush, etc.) a partir das cartas
+        try:
+            from poker_engine import nome_sequencia
+            seq = nome_sequencia(
+                merged.get("player_cards") or [],
+                merged.get("community_cards") or [],
+            )
+            if seq:
+                merged["hand_sequence"] = seq
+        except Exception:
+            pass
+
+        # Schema final: button_seat vazio = dealer não identificado
+        merged["dealer_button_nao_identificado"] = not bool((merged.get("button_seat") or "").strip())
         return _normalizar_dados(merged)
     finally:
         for _nome, path in paths_por_regiao.items():

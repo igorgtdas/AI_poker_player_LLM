@@ -5,8 +5,10 @@ Combina: posição, cartas da mesa, probabilidade de vitória e contexto do pote
 """
 from __future__ import annotations
 import base64
+import json
 import os
-from typing import List, Optional
+import re
+from typing import Any, Dict, List, Optional
 
 from poker_engine import probabilidade_vitoria_monte_carlo
 from posicao import Posicao, posicao_from_string
@@ -71,6 +73,135 @@ CONTEXT:
     prompt += """
 Respond in 2-4 short sentences. First give your recommendation (e.g. "Recommendation: RAISE to 2.5bb" or "Recommendation: FOLD"). Then briefly explain why considering position and equity. Keep the answer concise and in English."""
     return prompt
+
+
+def construir_prompt_veredito(
+    dados_completos: Dict[str, Any],
+    prob_vitoria: float,
+    preflop_engine_result: Optional[Dict[str, Any]] = None,
+) -> str:
+    """
+    Monta o prompt do analista técnico: usa SOMENTE os dados estruturados;
+    resposta em Recommendation, Confidence, Main reasons, Data limitations, Strategic note.
+    Se preflop_engine_result for passado (round preflop), inclui a saída do motor pré-flop no prompt.
+    """
+    json_str = json.dumps(dados_completos, indent=2, ensure_ascii=False)
+    dealer_incerto = dados_completos.get("dealer_button_nao_identificado") is True
+    nota_dealer = "\n- The field dealer_button_nao_identificado is true: dealer button was not identified (position may be uncertain). Mention this under Data limitations." if dealer_incerto else ""
+
+    preflop_block = ""
+    if preflop_engine_result:
+        preflop_block = f"""
+PREFLOP DECISION ENGINE OUTPUT (use as reference; align your recommendation with it when data supports):
+- recommended_action: {preflop_engine_result.get("recommended_action", "unknown")}
+- hand: {preflop_engine_result.get("hand", "")} | hand_class: {preflop_engine_result.get("hand_class", "")}
+- scenario: {preflop_engine_result.get("scenario", "")}
+- confidence: {preflop_engine_result.get("confidence", 0)}
+- reasoning: {preflop_engine_result.get("reasoning", [])}
+"""
+
+    prompt = f"""You are a technical poker analyst.
+Your role is to explain the best action using ONLY the structured data provided.
+
+STRUCTURED DATA (JSON from the table):
+{json_str}
+
+ADDITIONAL:
+- Estimated equity (win probability from simulation): {prob_vitoria:.1%}
+{nota_dealer}
+{preflop_block}
+
+RULES:
+1. Never invent previous actions. Use only what is in the data.
+2. Never confuse stack (chips in hand) with current bet. The schema does not include per-player bet amounts to avoid this.
+3. Never describe Hero's position differently from the "position" field in the JSON. Use that value exactly.
+4. If data is insufficient, reduce confidence and say so explicitly.
+5. The recommendation must consider position, effective stack (if present), confirmed prior action, pot odds, and hand playability.
+6. Equity alone is not enough to justify the decision.
+7. In preflop, give strong weight to the PREFLOP DECISION ENGINE OUTPUT above when present.
+8. Respond in this exact format (in English):
+
+- Recommendation: (one sentence: best action and optional size, e.g. "Fold" / "Check" / "Call" / "Raise to 2.5 BB")
+- Confidence: (Low | Medium | High)
+- Main reasons: (2-4 bullet points)
+- Data limitations: (what is missing or uncertain)
+- Strategic note: (one short line)"""
+    return prompt
+
+
+def construir_prompt_veredito_enum(recomendacao: str) -> str:
+    """Prompt para o agente que extrai apenas o veredito enum a partir da recomendação do analista."""
+    return f"""Based on the following poker recommendation, output a single line with the verdict.
+
+RECOMMENDATION:
+{recomendacao}
+
+Output exactly one line in this format:
+- VERDICT: FOLD
+- VERDICT: CHECK
+- VERDICT: CALL
+- VERDICT: RAISE X.X BB   (replace X.X with the suggested raise size in big blinds, e.g. 2.5 or 3)
+
+Output only that line, nothing else."""
+
+
+def extrair_veredito_da_resposta(texto: str) -> str:
+    """
+    Extrai o veredito (FOLD, CHECK, RAISE X BB) da resposta do agente.
+    Retorna string no formato "FOLD", "CHECK" ou "RAISE 2.5" (número em BB).
+    """
+    if not texto or not isinstance(texto, str):
+        return ""
+    texto = texto.strip().upper()
+    # VERDICT: FOLD / CHECK / CALL / RAISE 2.5 BB
+    m = re.search(r"VERDICT\s*:\s*(FOLD|CHECK|CALL|RAISE\s+[\d.]+(?:\s*BB)?)", texto, re.IGNORECASE)
+    if m:
+        val = m.group(1).strip().upper()
+        val = re.sub(r"\s*BB\s*$", "", val, flags=re.IGNORECASE).strip()
+        if val in ("FOLD", "CHECK", "CALL"):
+            return val
+        return "RAISE " + re.sub(r"^RAISE\s*", "", val, flags=re.IGNORECASE).strip()
+    return ""
+
+
+def obter_veredito_enum(
+    recomendacao: str,
+    *,
+    use_groq: Optional[bool] = None,
+    groq_api_key: Optional[str] = None,
+    groq_model: Optional[str] = None,
+    groq_stream: bool = False,
+    use_openai: Optional[bool] = None,
+    openai_api_key: Optional[str] = None,
+    openai_model: Optional[str] = None,
+    use_api: Optional[bool] = None,
+    api_base_url: Optional[str] = None,
+    api_key: Optional[str] = None,
+    api_model: Optional[str] = None,
+) -> str:
+    """
+    Segundo agente: a partir do texto da recomendação, chama o LLM para obter
+    apenas o veredito enum (FOLD | CHECK | RAISE X BB). Retorna string, ex.: "FOLD", "CHECK", "RAISE 2.5".
+    """
+    if not (recomendacao or "").strip():
+        return ""
+    prompt = construir_prompt_veredito_enum(recomendacao.strip())
+    raw = consultar_llama_vision(
+        prompt,
+        caminho_imagem=None,
+        use_groq=use_groq,
+        groq_api_key=groq_api_key,
+        groq_model=groq_model,
+        groq_stream=groq_stream,
+        use_openai=use_openai,
+        openai_api_key=openai_api_key,
+        openai_model=openai_model,
+        use_api=use_api,
+        api_base_url=api_base_url,
+        api_key=api_key,
+        api_model=api_model,
+    )
+    return extrair_veredito_da_resposta(raw or "")
 
 
 def _usar_groq() -> bool:
@@ -376,6 +507,7 @@ def melhor_jogada(
     caminho_imagem: Optional[str] = None,
     modelo: str = MODELO_VISAO,
     *,
+    dados_completos: Optional[Dict[str, Any]] = None,
     use_groq: Optional[bool] = None,
     groq_api_key: Optional[str] = None,
     groq_model: Optional[str] = None,
@@ -390,6 +522,9 @@ def melhor_jogada(
 ) -> dict:
     """
     Calcula a probabilidade de vitória e pergunta ao modelo a melhor jogada.
+
+    Se dados_completos for passado (JSON extraído da mesa), o agente final recebe
+    esse JSON inteiro como contexto e deve devolver um veredito explícito: FOLD, CHECK, CALL ou RAISE.
 
     Retorna dict com: probabilidade_vitoria, recomendacao (texto do modelo), prompt_usado.
 
@@ -409,18 +544,31 @@ def melhor_jogada(
         simulacoes=simulacoes,
     )
 
-    prompt = construir_prompt(
-        posicao=pos,
-        suas_cartas=suas_cartas,
-        cartas_mesa=cartas_mesa,
-        prob_vitoria=prob,
-        num_oponentes=num_oponentes,
-        tamanho_pote=tamanho_pote,
-        sua_stack=sua_stack,
-        blind=blind,
-        acoes_anteriores=acoes_anteriores,
-        imagem_fornecida=bool(caminho_imagem and os.path.isfile(caminho_imagem)),
-    )
+    preflop_engine_result = None
+    if dados_completos is not None:
+        round_ = (dados_completos.get("round") or "").strip().lower()
+        if round_ == "preflop":
+            try:
+                from preflop_engine import preflop_state_from_schema, preflop_decision_engine
+                state = preflop_state_from_schema(dados_completos)
+                if state is not None:
+                    preflop_engine_result = preflop_decision_engine(state)
+            except Exception:
+                pass
+        prompt = construir_prompt_veredito(dados_completos, prob, preflop_engine_result=preflop_engine_result)
+    else:
+        prompt = construir_prompt(
+            posicao=pos,
+            suas_cartas=suas_cartas,
+            cartas_mesa=cartas_mesa,
+            prob_vitoria=prob,
+            num_oponentes=num_oponentes,
+            tamanho_pote=tamanho_pote,
+            sua_stack=sua_stack,
+            blind=blind,
+            acoes_anteriores=acoes_anteriores,
+            imagem_fornecida=bool(caminho_imagem and os.path.isfile(caminho_imagem)),
+        )
 
     recomendacao = consultar_llama_vision(
         prompt,
@@ -439,8 +587,33 @@ def melhor_jogada(
         api_model=api_model,
     )
 
-    return {
+    # Segundo agente: veredito enum (FOLD | CHECK | RAISE X BB) a partir da recomendação
+    veredito = ""
+    if dados_completos is not None and (recomendacao or "").strip():
+        try:
+            veredito = obter_veredito_enum(
+                recomendacao,
+                use_groq=use_groq,
+                groq_api_key=groq_api_key,
+                groq_model=groq_model,
+                groq_stream=groq_stream,
+                use_openai=use_openai,
+                openai_api_key=openai_api_key,
+                openai_model=openai_model,
+                use_api=use_api,
+                api_base_url=api_base_url,
+                api_key=api_key,
+                api_model=api_model,
+            )
+        except Exception:
+            pass
+
+    out = {
         "probabilidade_vitoria": prob,
         "recomendacao": recomendacao,
         "prompt_usado": prompt,
+        "veredito": veredito,
     }
+    if preflop_engine_result is not None:
+        out["preflop_engine"] = preflop_engine_result
+    return out

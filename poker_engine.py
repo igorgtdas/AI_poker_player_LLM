@@ -139,6 +139,51 @@ def rank_5cartas(cartas: List[Tuple[str, str]]) -> Tuple[int, List[int]]:
     return (1, sorted(vals_ord, reverse=True))
 
 
+RANK_NAMES = {
+    9: "straight flush",
+    8: "four of a kind",
+    7: "full house",
+    6: "flush",
+    5: "straight",
+    4: "three of a kind",
+    3: "two pair",
+    2: "pair",
+    1: "high card",
+}
+
+
+def melhor_mao_5_entre_n(cartas: List[Tuple[str, str]]) -> Tuple[int, List[int]]:
+    """Dado 5, 6 ou 7 cartas, retorna o rank da melhor mão de 5 (rank_principal, desempate)."""
+    from itertools import combinations
+    if len(cartas) == 5:
+        return rank_5cartas(cartas)
+    if len(cartas) == 6:
+        return max((rank_5cartas(list(c)) for c in combinations(cartas, 5)), key=lambda x: (x[0], x[1]))
+    if len(cartas) == 7:
+        return rank_7cartas(cartas)
+    raise ValueError("Precisa de 5, 6 ou 7 cartas")
+
+
+def nome_sequencia(suas_cartas: List[str], cartas_mesa: List[str]) -> str:
+    """
+    Retorna o nome da melhor mão atual (ex: "pair", "straight", "flush").
+    suas_cartas: 0 ou 2 cartas; cartas_mesa: 0, 3, 4 ou 5 cartas.
+    Se não houver cartas suficientes, retorna "".
+    """
+    if len(suas_cartas) != 2 or len(cartas_mesa) < 3:
+        return ""
+    try:
+        suas = [parse_carta(c) for c in suas_cartas]
+        mesa = [parse_carta(c) for c in cartas_mesa]
+    except (ValueError, TypeError):
+        return ""
+    todas = suas + mesa
+    if len(todas) < 5:
+        return ""
+    rank_num, _ = melhor_mao_5_entre_n(todas)
+    return RANK_NAMES.get(rank_num, "high card")
+
+
 def comparar_maos(mao1: List[Tuple[str, str]], mao2: List[Tuple[str, str]]) -> int:
     """
     Compara duas mãos de 5+ cartas (usa as melhores 5 de cada).

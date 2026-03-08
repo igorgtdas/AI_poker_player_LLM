@@ -111,6 +111,15 @@ def main():
         print()
         print("--- Probabilidade de vitória (equity) ---")
         print(f"  {resultado['probabilidade_vitoria']:.1%}")
+        if resultado.get("preflop_engine"):
+            pe = resultado["preflop_engine"]
+            print()
+            print("--- Motor pré-flop ---")
+            print(f"  Ação: {pe.get('recommended_action', '')} | Mão: {pe.get('hand', '')} ({pe.get('hand_class', '')}) | Cenário: {pe.get('scenario', '')}")
+        if resultado.get("veredito"):
+            print()
+            print("--- Veredito ---")
+            print(f"  {resultado['veredito']}")
         print()
         print("--- Recomendação (consultor) ---")
         print(resultado["recomendacao"])
