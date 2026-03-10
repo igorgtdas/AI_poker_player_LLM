@@ -23,6 +23,7 @@ def _dados_unificados(dados: dict) -> dict:
         "player_bets": dados.get("player_bets") or [],
         "button_seat": dados.get("button_seat") or "",
         "hand_sequence": dados.get("hand_sequence") or "",
+        "facing_bet_to_call": bool(dados.get("facing_bet_to_call")),
     }
 
 
@@ -105,6 +106,7 @@ def imagem_para_recomendacao(
         api_base_url=vision_api_base_url,
         api_key=vision_api_key,
         api_model=vision_api_model,
+        use_groq=use_groq,
         use_openai=use_openai,
         openai_api_key=openai_api_key,
         openai_model=openai_model,
@@ -170,4 +172,6 @@ def imagem_para_recomendacao(
     }
     if resultado.get("preflop_engine") is not None:
         out["preflop_engine"] = resultado["preflop_engine"]
+    if resultado.get("hero_folded") is True:
+        out["hero_folded"] = True
     return out

@@ -8,7 +8,8 @@ import base64
 import json
 import os
 import re
-from typing import Any, Dict, List, Optional
+import time
+from typing import Any, Callable, Dict, List, Optional
 
 from poker_engine import probabilidade_vitoria_monte_carlo
 from posicao import Posicao, posicao_from_string
@@ -22,10 +23,10 @@ ENV_GROQ_API_KEY = "GROQ_API_KEY"
 ENV_GROQ_MODEL = "GROQ_MODEL"
 DEFAULT_GROQ_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
 
-# OpenAI (oficial: gpt-4o, gpt-4o-mini, etc.)
+# OpenAI (gpt-4o, gpt-4o-mini, gpt-4.1, etc.)
 ENV_OPENAI_API_KEY = "OPENAI_API_KEY"
 ENV_OPENAI_MODEL = "OPENAI_MODEL"
-DEFAULT_OPENAI_MODEL = "gpt-4o-mini"
+DEFAULT_OPENAI_MODEL = "gpt-4o-mini"  # ou gpt-4.1, gpt-4o conforme OPENAI_MODEL no .env
 
 # API OpenAI-compatible (ex.: Llama Vision, outros provedores)
 ENV_API_BASE_URL = "LLAMA_VISION_API_BASE_URL"
@@ -75,6 +76,17 @@ Respond in 2-4 short sentences. First give your recommendation (e.g. "Recommenda
     return prompt
 
 
+def _preflop_confidence_label(score: float) -> str:
+    """Rótulo padronizado para confiança do motor pré-flop (evita 'High' para 0.6)."""
+    if score >= 0.8:
+        return "High"
+    if score >= 0.6:
+        return "Medium"
+    if score >= 0.4:
+        return "Low-Medium"
+    return "Low"
+
+
 def construir_prompt_veredito(
     dados_completos: Dict[str, Any],
     prob_vitoria: float,
@@ -88,6 +100,13 @@ def construir_prompt_veredito(
     json_str = json.dumps(dados_completos, indent=2, ensure_ascii=False)
     dealer_incerto = dados_completos.get("dealer_button_nao_identificado") is True
     nota_dealer = "\n- The field dealer_button_nao_identificado is true: dealer button was not identified (position may be uncertain). Mention this under Data limitations." if dealer_incerto else ""
+    position = (dados_completos.get("position") or "").strip().upper()
+    nota_co = "\n- If position is CO: do not state that 'opening ranges are generally stronger'; CO is a late position with a wide open range." if position == "CO" else ""
+    facing_bet = dados_completos.get("facing_bet_to_call") is True
+    nota_facing_bet = (
+        "\n- facing_bet_to_call is true: a 'Call' (or 'Call X') button is visible, so someone has bet and hero can Fold or Call (or Check if hero has already matched). Recommend one of: Fold, Call [amount], or Check if applicable. Do not recommend Raise unless the UI clearly offers it."
+        if facing_bet else ""
+    )
 
     preflop_block = ""
     if preflop_engine_result:
@@ -96,7 +115,7 @@ PREFLOP DECISION ENGINE OUTPUT (use as reference; align your recommendation with
 - recommended_action: {preflop_engine_result.get("recommended_action", "unknown")}
 - hand: {preflop_engine_result.get("hand", "")} | hand_class: {preflop_engine_result.get("hand_class", "")}
 - scenario: {preflop_engine_result.get("scenario", "")}
-- confidence: {preflop_engine_result.get("confidence", 0)}
+- confidence: {preflop_engine_result.get("confidence", 0)} ({_preflop_confidence_label(preflop_engine_result.get("confidence", 0))})
 - reasoning: {preflop_engine_result.get("reasoning", [])}
 """
 
@@ -109,6 +128,8 @@ STRUCTURED DATA (JSON from the table):
 ADDITIONAL:
 - Estimated equity (win probability from simulation): {prob_vitoria:.1%}
 {nota_dealer}
+{nota_co}
+{nota_facing_bet}
 {preflop_block}
 
 RULES:
@@ -122,7 +143,7 @@ RULES:
 8. Respond in this exact format (in English):
 
 - Recommendation: (one sentence: best action and optional size, e.g. "Fold" / "Check" / "Call" / "Raise to 2.5 BB")
-- Confidence: (Low | Medium | High)
+- Confidence: (Low | Low-Medium | Medium | High)
 - Main reasons: (2-4 bullet points)
 - Data limitations: (what is missing or uncertain)
 - Strategic note: (one short line)"""
@@ -306,13 +327,40 @@ def consultar_groq_vision(
     return _groq_resposta_texto(completion, stream=False)
 
 
+def _retry_on_rate_limit(fn: Callable[[], Any], max_retries: int = 3, base_wait: int = 25) -> Any:
+    """Executa fn(); em 429 (rate limit), espera e tenta de novo até max_retries."""
+    last_err = None
+    for attempt in range(max_retries + 1):
+        try:
+            return fn()
+        except Exception as e:
+            last_err = e
+            err_str = str(e).lower()
+            is_429 = (
+                getattr(e, "status_code", None) == 429
+                or "429" in err_str
+                or "rate limit" in err_str
+            )
+            if is_429 and attempt < max_retries:
+                wait = base_wait
+                if "try again in" in err_str or "in 20s" in err_str:
+                    import re as re_mod
+                    m = re_mod.search(r"try again in (\d+)s", err_str)
+                    if m:
+                        wait = int(m.group(1)) + 5
+                time.sleep(wait)
+                continue
+            raise
+    raise last_err
+
+
 def consultar_openai(
     prompt: str,
     modelo: Optional[str] = None,
     api_key: Optional[str] = None,
     max_tokens: int = 1024,
 ) -> str:
-    """Chama a API OpenAI (GPT-4o, gpt-4o-mini, etc.) — apenas texto."""
+    """Chama a API OpenAI (GPT-4o, gpt-4o-mini, etc.) — apenas texto. Retry automático em 429."""
     try:
         from openai import OpenAI
     except ImportError:
@@ -322,11 +370,15 @@ def consultar_openai(
         raise ValueError("Defina OPENAI_API_KEY ou passe api_key")
     model = modelo or os.environ.get(ENV_OPENAI_MODEL) or DEFAULT_OPENAI_MODEL
     client = OpenAI(api_key=api_key)
-    response = client.chat.completions.create(
-        model=model,
-        messages=[{"role": "user", "content": prompt}],
-        max_tokens=max_tokens,
-    )
+
+    def _call() -> Any:
+        return client.chat.completions.create(
+            model=model,
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=max_tokens,
+        )
+
+    response = _retry_on_rate_limit(_call)
     return (response.choices[0].message.content or "").strip()
 
 
@@ -337,7 +389,7 @@ def consultar_openai_vision(
     api_key: Optional[str] = None,
     max_tokens: int = 1024,
 ) -> str:
-    """Chama a API OpenAI com imagem (ex.: gpt-4o, gpt-4o-mini)."""
+    """Chama a API OpenAI com imagem (ex.: gpt-4o, gpt-4o-mini). Retry automático em 429."""
     try:
         from openai import OpenAI
     except ImportError:
@@ -354,11 +406,15 @@ def consultar_openai_vision(
         {"type": "image_url", "image_url": {"url": data_url}},
     ]
     client = OpenAI(api_key=api_key)
-    response = client.chat.completions.create(
-        model=model,
-        messages=[{"role": "user", "content": content}],
-        max_tokens=max_tokens,
-    )
+
+    def _call() -> Any:
+        return client.chat.completions.create(
+            model=model,
+            messages=[{"role": "user", "content": content}],
+            max_tokens=max_tokens,
+        )
+
+    response = _retry_on_rate_limit(_call)
     return (response.choices[0].message.content or "").strip()
 
 
@@ -535,6 +591,22 @@ def melhor_jogada(
     - Ollama local: padrão se nenhum dos anteriores.
     """
     cartas_mesa = cartas_mesa or []
+    suas_cartas = suas_cartas or []
+
+    # player_cards = [] significa que o hero já não está ativo (já deu fold) — não há decisão a tomar
+    if len(suas_cartas) == 0 and dados_completos is not None:
+        msg = (
+            "No action — you are not in the hand. "
+            "Empty player_cards means you have already folded or are not active. No decision required."
+        )
+        return {
+            "probabilidade_vitoria": 0.0,
+            "recomendacao": msg,
+            "prompt_usado": "(hero folded: player_cards empty)",
+            "veredito": "FOLDED",
+            "hero_folded": True,
+        }
+
     pos = posicao_from_string(posicao)
 
     prob = probabilidade_vitoria_monte_carlo(

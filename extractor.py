@@ -25,6 +25,7 @@ SCHEMA_EXTRACAO = {
     "button_seat": "",                  # str: assento do BTN (ex.: seat_6h) para mapear posição por jogador
     "hand_sequence": "",                # str: melhor mão atual (ex.: "pair", "straight", "flush") a partir das cartas
     "dealer_button_nao_identificado": False,  # bool: True quando button_seat está vazio (dealer não identificado)
+    "facing_bet_to_call": False,       # bool: True se na UI aparece "Call" (alguém apostou; hero pode Fold ou Call)
 }
 
 PROMPT_EXTRACAO = """You are analyzing a Texas Hold'em poker table image (screenshot or photo).
@@ -38,8 +39,9 @@ Required keys (use exact names):
 - "community_cards": array of community cards in the same format. Empty [] if no board cards yet. Otherwise 3 (flop), 4 (turn) or 5 (river) cards in the middle of the table.
 - "pot": number, pot size — money already in the pot or current bet to call (in BB or absolute). Use 0 if unknown.
 - "risk_based_on_position_player": string, brief position risk (e.g. "early position, first to act"). Empty string if not relevant.
+- "facing_bet_to_call": boolean. If you see a "Call" or "Call X" button (or similar) in the UI, it means someone has bet and hero can fold or call; set true. Otherwise false.
 
-If unclear, use defaults: position "BTN", player_cards [], community_cards [], total_number_of_players 2, pot 0, risk_based_on_position_player "".
+If unclear, use defaults: position "BTN", player_cards [], community_cards [], total_number_of_players 2, pot 0, risk_based_on_position_player "", facing_bet_to_call false.
 
 Output ONLY the JSON object, no code block, no explanation."""
 
@@ -57,6 +59,7 @@ From this image extract ONLY (output a single valid JSON with exactly these keys
 - "position": string, my position from Step 2. One of: UTG, UTG+1, HJ, CO, BTN, SB, BB. If the D is not visible, still output one valid position (e.g. BTN).
 - "pot": number, the pot value shown (e.g. "Pot: 945" or similar). Use 0 if not visible.
 - "risk_based_on_position_player": string, brief note (e.g. "button, last to act"). Empty string if not relevant.
+- "facing_bet_to_call": boolean. If you see a "Call" or "Call X" button in the UI (someone has bet; hero can fold or call), set true. Otherwise false.
 
 Do NOT extract player_cards, community_cards or round; those come from other crops or are set automatically.
 Respond with ONLY the JSON object. No other text."""
@@ -278,6 +281,9 @@ def _normalizar_dados(bruto: dict) -> dict:
         out["dealer_button_nao_identificado"] = True
     if "hand_sequence" in bruto and str(bruto["hand_sequence"]).strip():
         out["hand_sequence"] = str(bruto["hand_sequence"]).strip().lower()
+    if "facing_bet_to_call" in bruto:
+        val = bruto["facing_bet_to_call"]
+        out["facing_bet_to_call"] = bool(val) if not isinstance(val, str) else str(val).strip().lower() in ("true", "1", "yes")
     # risk_based_on_position_player sempre derivado da position (não do LLM)
     out["risk_based_on_position_player"] = _risk_descricao_por_posicao(out.get("position", ""))
     if "player_bets" in bruto and isinstance(bruto["player_bets"], list):
@@ -476,7 +482,7 @@ def _extrair_por_regioes(
             path_ctx = paths_por_regiao["position"]
             raw_ctx = _chamar_vision_llm(PROMPT_REGIAO_CONTEXTO, path_ctx, **llm_kwargs)
             ctx = _extrair_json_da_resposta(raw_ctx)
-            for key in ("risk_based_on_position_player",):
+            for key in ("risk_based_on_position_player", "facing_bet_to_call"):
                 if key in ctx:
                     merged[key] = ctx[key]
             if "total_number_of_players" not in merged and "total_number_of_players" in ctx:
@@ -492,7 +498,7 @@ def _extrair_por_regioes(
             path_ctx = paths_por_regiao["position"]
             raw_ctx = _chamar_vision_llm(PROMPT_REGIAO_CONTEXTO, path_ctx, **llm_kwargs)
             ctx = _extrair_json_da_resposta(raw_ctx)
-            for key in ("total_number_of_players", "position", "pot", "risk_based_on_position_player"):
+            for key in ("total_number_of_players", "position", "pot", "risk_based_on_position_player", "facing_bet_to_call"):
                 if key in ctx:
                     merged[key] = ctx[key]
 
@@ -550,6 +556,7 @@ def extrair_json_da_imagem(
     api_base_url: Optional[str] = None,
     api_key: Optional[str] = None,
     api_model: Optional[str] = None,
+    use_groq: Optional[bool] = None,
     use_openai: Optional[bool] = None,
     openai_api_key: Optional[str] = None,
     openai_model: Optional[str] = None,
@@ -573,6 +580,7 @@ def extrair_json_da_imagem(
         "api_base_url": api_base_url,
         "api_key": api_key,
         "api_model": api_model,
+        "use_groq": use_groq,
         "use_openai": use_openai,
         "openai_api_key": openai_api_key,
         "openai_model": openai_model,

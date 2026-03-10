@@ -72,12 +72,28 @@ def _salvar_log_analise(path_imagem: str, resultado: dict | None = None, erro: s
     except OSError:
         pass
 
-# Carrega .env
+# Carrega .env na pasta do projeto (mesmo ao rodar de outro diretório)
+_DIR_PROJETO = os.path.dirname(os.path.abspath(__file__))
+_ENV_PATH = os.path.join(_DIR_PROJETO, ".env")
 try:
     from dotenv import load_dotenv
-    load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
+    load_dotenv(_ENV_PATH)
 except ImportError:
     pass
+
+
+def _config_openai_from_env() -> dict:
+    """Lê OPENAI_API_KEY e OPENAI_MODEL do .env (já carregado). Usado para extração e consultor com o mesmo modelo."""
+    key = (os.environ.get("OPENAI_API_KEY") or "").strip().strip('"').strip("'")
+    model = (os.environ.get("OPENAI_MODEL") or "").strip().strip('"').strip("'") or "gpt-4o-mini"
+    if not key:
+        return {}
+    return {
+        "use_openai": True,
+        "openai_api_key": key,
+        "openai_model": model,
+        "use_groq": False,
+    }
 
 
 def _definir_area_mesa(root: tk.Tk, lbl_status: ttk.Label) -> None:
@@ -290,7 +306,15 @@ def _rodar_analise(root: tk.Tk, caminho_var: tk.StringVar, username_var: tk.Stri
     def tarefa():
         try:
             from pipeline import imagem_para_recomendacao
-            resultado = imagem_para_recomendacao(path, username_player=username, position_manual=position_manual, use_regions=use_reg)
+            # Usar mesma config OpenAI para extração e consultor (chave e modelo do .env)
+            openai_kw = _config_openai_from_env()
+            resultado = imagem_para_recomendacao(
+                path,
+                username_player=username,
+                position_manual=position_manual,
+                use_regions=use_reg,
+                **openai_kw,
+            )
         except Exception as e:
             resultado = None
             erro = str(e)
@@ -319,7 +343,15 @@ def _rodar_analise(root: tk.Tk, caminho_var: tk.StringVar, username_var: tk.Stri
                 if preflop:
                     texto += "--- Motor pré-flop ---\n"
                     texto += f"  Ação: {preflop.get('recommended_action', '')} | Mão: {preflop.get('hand', '')} ({preflop.get('hand_class', '')}) | Cenário: {preflop.get('scenario', '')}\n"
-                    texto += f"  Confiança: {preflop.get('confidence', 0)}\n\n"
+                    conf = preflop.get("confidence", 0)
+                    try:
+                        from preflop_engine import confidence_label
+                        conf_str = f"{conf} ({confidence_label(conf)})"
+                    except Exception:
+                        conf_str = str(conf)
+                    texto += f"  Confiança: {conf_str}\n\n"
+                if resultado.get("hero_folded"):
+                    texto += "--- Status ---\n  Você não está na mão (player_cards vazio = já deu fold). Sem ação.\n\n"
                 if veredito:
                     texto += "--- Veredito ---\n"
                     texto += f"  {veredito}\n\n"

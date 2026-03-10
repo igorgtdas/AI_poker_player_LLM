@@ -20,7 +20,7 @@
 | Ordem | Provedor | Modelo | Uso |
 |-------|----------|--------|-----|
 | 1 | **Groq** | `meta-llama/llama-4-scout-17b-16e-instruct` (Llama 4 Scout) | Texto e **imagem (vision)** — extração e consulta |
-| 2 | **OpenAI** | `gpt-4o`, `gpt-4o-mini` | Texto e **imagem (vision)** — extração e consulta |
+| 2 | **OpenAI** | `gpt-4.1`, `gpt-4o`, `gpt-4o-mini` | Texto e **imagem (vision)** — extração e consulta |
 | 3 | API OpenAI-compatible | ex.: `meta-llama/Llama-3.2-11B-Vision-Instruct` | Visão e/ou texto |
 | 4 | **Ollama** (local) | `llama3.2-vision` | Visão local |
 
@@ -30,7 +30,7 @@
 
 - **Python 3.8+**
 - **Groq (recomendado):** chave em [console.groq.com](https://console.groq.com) — Llama 4 Scout com vision
-- **OpenAI:** chave em [platform.openai.com](https://platform.openai.com) — use `gpt-4o` ou `gpt-4o-mini` (com vision)
+- **OpenAI:** chave em [platform.openai.com](https://platform.openai.com) — use `gpt-4.1`, `gpt-4o` ou `gpt-4o-mini` (com vision)
 - **Opcional:** Ollama com `llama3.2-vision` ou outra API com suporte a imagem
 
 ---
@@ -73,7 +73,7 @@ python config_ui.py
 ```
 
 - **Groq:** `GROQ_API_KEY` e `GROQ_MODEL` (padrão: Llama 4 Scout)
-- **OpenAI:** `OPENAI_API_KEY` e `OPENAI_MODEL` (padrão: `gpt-4o-mini`) — para usar GPT-4o ou gpt-4o-mini
+- **OpenAI:** `OPENAI_API_KEY` e `OPENAI_MODEL` (padrão: `gpt-4o-mini`) — para usar gpt-4.1, gpt-4o ou gpt-4o-mini
 - **Outra API:** `LLAMA_VISION_API_BASE_URL`, `LLAMA_VISION_API_KEY`, `LLAMA_VISION_MODEL`
 
 Salve em `.env`. Ordem de uso: Groq > OpenAI > outra API > Ollama local.
@@ -84,8 +84,8 @@ Salve em `.env`. Ordem de uso: Groq > OpenAI > outra API > Ollama local.
 |----------|-----------|
 | `GROQ_API_KEY` | Chave da API Groq (prioridade) |
 | `GROQ_MODEL` | Modelo Groq (padrão: `meta-llama/llama-4-scout-17b-16e-instruct`) |
-| `OPENAI_API_KEY` | Chave da API OpenAI (para GPT-4o, gpt-4o-mini) |
-| `OPENAI_MODEL` | Modelo OpenAI (padrão: `gpt-4o-mini`) |
+| `OPENAI_API_KEY` | Chave da API OpenAI (para gpt-4.1, gpt-4o, gpt-4o-mini) |
+| `OPENAI_MODEL` | Modelo OpenAI (padrão: `gpt-4o-mini`; ex.: `gpt-4.1`, `gpt-4o`) |
 | `LLAMA_VISION_API_BASE_URL` | URL base de API OpenAI-compatible |
 | `LLAMA_VISION_API_KEY` | Chave dessa API |
 | `LLAMA_VISION_MODEL` | Nome do modelo (ex.: `meta-llama/Llama-3.2-11B-Vision-Instruct`) |
@@ -124,15 +124,15 @@ set GROQ_API_KEY=sua-chave
 python main.py --extrair --imagem mesa.png
 ```
 
-Para usar **OpenAI** (GPT-4o ou gpt-4o-mini):
+Para usar **OpenAI** (gpt-4.1, gpt-4o ou gpt-4o-mini):
 
 ```bash
 set OPENAI_API_KEY=sk-sua-chave
-set OPENAI_MODEL=gpt-4o-mini
+set OPENAI_MODEL=gpt-4.1
 python main.py --extrair --imagem mesa.png
 ```
 
-Ou na linha de comando: `python main.py --openai --openai-model gpt-4o --extrair --imagem mesa.png`
+Ou na linha de comando: `python main.py --openai --openai-model gpt-4.1 --extrair --imagem mesa.png`
 
 **Extração por regiões:** a imagem é dividida em regiões com proporções fixas (válidas para qualquer tamanho):
 

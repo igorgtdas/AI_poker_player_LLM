@@ -21,7 +21,7 @@ VARIAVEIS_GROQ = [
 ]
 VARIAVEIS_OPENAI = [
     ("OPENAI_API_KEY", "Chave da API OpenAI (obrigatório para OpenAI)", ""),
-    ("OPENAI_MODEL", "Modelo OpenAI (ex.: gpt-4o, gpt-4o-mini)", "gpt-4o-mini"),
+    ("OPENAI_MODEL", "Modelo OpenAI (ex.: gpt-4.1, gpt-4o, gpt-4o-mini)", "gpt-4o-mini"),
 ]
 # API OpenAI-compatible (outros provedores); usada se Groq e OpenAI não estiverem definidos
 VARIAVEIS_API = [
@@ -59,9 +59,9 @@ def salvar_env(valores: dict[str, str]) -> None:
             if "\n" in valor or " " in valor or not valor:
                 valor = f'"{valor}"'
             f.write(f"{nome}={valor}\n")
-        f.write("\n# --- OpenAI (GPT-4o, gpt-4o-mini) ---\n")
+        f.write("\n# --- OpenAI (gpt-4.1, gpt-4o, gpt-4o-mini) ---\n")
         for nome, _, _ in VARIAVEIS_OPENAI:
-            valor = valores.get(nome, "")
+            valor = (valores.get(nome, "") or "").strip().strip('"').strip("'")
             if "\n" in valor or " " in valor or not valor:
                 valor = f'"{valor}"'
             f.write(f"{nome}={valor}\n")
@@ -102,7 +102,7 @@ def criar_janela() -> tk.Tk:
         entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
         entries[nome] = var
 
-    ttk.Label(frame, text="OpenAI (GPT-4o, gpt-4o-mini)", font=("", 9, "bold")).pack(anchor=tk.W, pady=(12, 2))
+    ttk.Label(frame, text="OpenAI (gpt-4.1, gpt-4o, gpt-4o-mini)", font=("", 9, "bold")).pack(anchor=tk.W, pady=(12, 2))
     for nome, label, placeholder in VARIAVEIS_OPENAI:
         row = ttk.Frame(frame)
         row.pack(fill=tk.X, pady=2)
