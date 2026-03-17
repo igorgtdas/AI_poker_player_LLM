@@ -17,7 +17,7 @@ LOG_DIR = "logs"
 LOG_CSV = "analyses.csv"
 
 # Versão exibida na interface (alinhada a pyproject.toml)
-VERSION = "0.5.0"
+VERSION = "0.5.1"
 
 
 def _caminho_log_csv() -> str:

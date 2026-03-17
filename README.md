@@ -28,7 +28,7 @@
 
 ## Requisitos
 
-- **Python 3.8+**
+- **Python 3.8+** (testado em 3.11, 3.12, 3.13 e 3.14). Em 3.13/3.14 use `pip install --upgrade pip` e depois `pip install -r requirements.txt` para obter wheels compatíveis.
 - **Groq (recomendado):** chave em [console.groq.com](https://console.groq.com) — Llama 4 Scout com vision
 - **OpenAI:** chave em [platform.openai.com](https://platform.openai.com) — use `gpt-4.1`, `gpt-4o` ou `gpt-4o-mini` (com vision)
 - **Opcional:** Ollama com `llama3.2-vision` ou outra API com suporte a imagem
@@ -47,6 +47,8 @@ venv\Scripts\activate
 # Linux/macOS:
 # source venv/bin/activate
 
+# Python 3.13/3.14: atualize o pip antes para obter wheels compatíveis
+pip install --upgrade pip
 pip install -r requirements.txt
 ```
 
@@ -312,6 +314,28 @@ No GitHub, em **Releases**, crie um release a partir da tag e descreva as mudan�
 - **Mão vazia:** `player_cards: []` não gera erro; equity = 0% e o consultor pode recomendar FOLD.
 - **Groq:** Llama 4 Scout suporta visão; uma única chave basta para extração e consulta.
 - **Ollama:** deve estar em execução (`ollama serve` ou app) quando for usado.
+
+---
+
+## Problemas com o venv (Python 3.13 / 3.14)
+
+Se aparecer **`cannot import name '_imaging' from 'PIL'`** ou **`No module named 'pydantic_core._pydantic_core'`**:
+
+1. Atualize o pip e reinstale as dependências (garante wheels compatíveis com 3.13/3.14):
+   ```bash
+   pip install --upgrade pip
+   pip install -r requirements.txt --upgrade --force-reinstall
+   ```
+2. Se ainda falhar, recrie o venv e instale de novo:
+   ```bash
+   # Windows
+   Remove-Item -Recurse -Force venv
+   python -m venv venv
+   .\venv\Scripts\Activate.ps1
+   pip install --upgrade pip
+   pip install -r requirements.txt
+   ```
+3. Confirme: `python -c "from openai import OpenAI; from PIL import Image; print('OK')"`
 
 ---
 

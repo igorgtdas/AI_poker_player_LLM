@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.5.1]
+
+### Alterado
+
+- **Compatibilidade Python 3.13 e 3.14:** dependências atualizadas (openai>=1.55, groq>=0.15, pydantic>=2.10, Pillow>=12) para usar wheels compatíveis; pyproject.toml e README com suporte 3.13/3.14.
+- **README:** requisitos Python 3.8+ (testado 3.11–3.14); instruções de instalação e troubleshooting para 3.13/3.14.
+
+### Corrigido
+
+- Erros de import (`pydantic_core._pydantic_core`, PIL `_imaging`) em Python 3.13/3.14 com upgrade de pip e reinstalação das dependências.
+
+---
+
 ## [0.5.0]
 
 ### Adicionado

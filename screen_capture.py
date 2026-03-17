@@ -70,7 +70,11 @@ def capturar_bbox(bbox: Tuple[int, int, int, int], salvar_em_projeto: bool = Tru
     try:
         from PIL import ImageGrab
     except ImportError:
-        raise ImportError("Para captura de tela, instale: pip install Pillow")
+        import sys
+        raise ImportError(
+            "Pillow (PIL) não encontrado. Instale com: pip install Pillow. "
+            f"Python em uso: {getattr(sys, 'executable', '?')} — confira se é o do seu venv."
+        )
     img = ImageGrab.grab(bbox=bbox)
     if salvar_em_projeto:
         path = _get_ultima_captura_path()

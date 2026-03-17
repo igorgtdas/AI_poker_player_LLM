@@ -56,12 +56,20 @@ ORDEM_REGIOES = ("position", "community_cards", "hole_cards")
 ORDEM_REGIOES_ASSENTOS = ORDEM_ASSENTOS_RELOJ
 
 
+def _pil_import_error() -> str:
+    import sys
+    return (
+        "Pillow (PIL) não encontrado. Instale com: pip install Pillow. "
+        f"Python em uso: {getattr(sys, 'executable', '?')} — confira se é o do seu venv."
+    )
+
+
 def _carregar_imagem(caminho: str):
     """Carrega imagem com Pillow."""
     try:
         from PIL import Image
     except ImportError:
-        raise ImportError("Para recortar regiões, instale: pip install Pillow")
+        raise ImportError(_pil_import_error())
     img = Image.open(caminho).convert("RGB")
     return img
 
@@ -98,7 +106,7 @@ def recortar_todas_as_regioes(caminho_imagem: str) -> dict[str, Any]:
     try:
         from PIL import Image
     except ImportError:
-        raise ImportError("Para recortar regiões, instale: pip install Pillow")
+        raise ImportError(_pil_import_error())
     img = _carregar_imagem(caminho_imagem)
     out = {}
     for nome, (left, top, w, h) in REGIOES.items():
@@ -131,7 +139,7 @@ def montar_imagem_assentos_composite(caminho_imagem: str, apenas_seis_assentos: 
     try:
         from PIL import Image, ImageDraw, ImageFont
     except ImportError:
-        raise ImportError("Para montar composite, instale: pip install Pillow")
+        raise ImportError(_pil_import_error())
     crops = recortar_assentos_e_botao(caminho_imagem)
     ordem = list(ORDEM_ASSENTOS_RELOJ)
     imgs = [crops[n] for n in ordem]

@@ -1,7 +1,9 @@
+# Versões mínimas compatíveis com Python 3.13 e 3.14 (extensões compiladas com wheels atualizados)
 ollama>=0.3.0
-openai>=1.0.0
-groq>=0.4.0
+openai>=1.55.0
+groq>=0.15.0
+pydantic>=2.10.0
 python-dotenv>=1.0.0
-Pillow>=10.0.0
+Pillow>=12.0.0
 pynput>=1.7.0
 keyboard>=0.13.5
